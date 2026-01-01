@@ -45,14 +45,26 @@ Add the following secrets to your GitHub repository (**Settings > Secrets and va
 | `CLIENT_SECRET` | Your Google Cloud OAuth 2.0 Client Secret. |
 | `REFRESH_TOKEN` | The OAuth 2.0 Refresh Token for the Chrome Web Store API. |
 
-#### Triggering a Deployment
+#### Triggering a Release (GitHub Release)
 
-1. Navigate to the **Actions** tab in this repository.
+Before you can publish to the Chrome Web Store, you need a ZIP file of the extension. You can generate this and create a GitHub Release using the **Create Release** workflow:
+
+1. Navigate to the **Actions** tab.
+2. Select the **Create Release** workflow.
+3. Click **Run workflow**.
+4. Choose the `version_type` (patch, minor, or major).
+5. Once complete, a new release will be created with the `extension.zip` attached, and the version in the repository will be automatically incremented.
+
+#### Triggering a Deployment (Chrome Web Store)
+
+Once you have your `EXTENSION_ID` from the first manual upload (using the ZIP from the GitHub Release), you can use the **Publish to Chrome Web Store** workflow:
+
+1. Navigate to the **Actions** tab.
 2. Select the **Publish to Chrome Web Store** workflow.
 3. Click **Run workflow**.
-4. Choose the `publish_target` (default is `default` for public, or `trusted_testers` for private testing).
+4. Choose the `publish_target` (default is `default`).
 
-The workflow will automatically package the extension and upload it to the store for review.
+The workflow will package the current code and upload it to the store for review.
 
 ## License
 

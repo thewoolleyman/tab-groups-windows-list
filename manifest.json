@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Groups & Windows List",
-  "version": "1.0",
+  "version": "1.0.0",
   "description": "A simple 2-level expandable list of current tab groups and their window names.",
   "permissions": ["tabGroups", "tabs", "windows"],
   "action": {
