@@ -2,6 +2,10 @@
 
 A simple Chrome extension that provides a 2-level expandable list of your current tab groups and the windows they belong to.
 
+**Chrome Web Store**: [Tab Groups & Windows List](https://chromewebstore.google.com/detail/tab-groups-windows-list/gialhfelganamiclidkigjnjdkdbohcb)
+
+**Extension ID**: `gialhfelganamiclidkigjnjdkdbohcb`
+
 ## Features
 
 - **Expandable List**: View all your tab groups at a glance and expand them to see their host window.
@@ -40,7 +44,7 @@ Add the following secrets to your GitHub repository (**Settings > Secrets and va
 
 | Secret Name | Description |
 |-------------|-------------|
-| `EXTENSION_ID` | The unique ID of your extension in the Chrome Web Store. |
+| `EXTENSION_ID` | The unique ID of your extension in the Chrome Web Store (`gialhfelganamiclidkigjnjdkdbohcb`). |
 | `CLIENT_ID` | Your Google Cloud OAuth 2.0 Client ID. |
 | `CLIENT_SECRET` | Your Google Cloud OAuth 2.0 Client Secret. |
 | `REFRESH_TOKEN` | The OAuth 2.0 Refresh Token for the Chrome Web Store API. |
