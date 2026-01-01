@@ -1,0 +1,14 @@
+Title: Tab Groups & Windows List
+
+Summary: A simple 2-level expandable list of current tab groups and their window names.
+
+Description:
+Tab Groups & Windows List is a minimalist productivity tool designed for users who heavily use Chrome's Tab Groups feature. 
+
+Key Features:
+- Instant Overview: See all your active tab groups in a single, clean list.
+- 2-Level Hierarchy: Expand any group to see exactly which window it resides in.
+- Native Integration: Uses Chrome's built-in APIs for real-time accuracy.
+- Visual Consistency: Matches your group colors for intuitive navigation.
+
+Perfect for "tab hoarders" and power users who need to quickly locate their grouped tabs across multiple browser windows.

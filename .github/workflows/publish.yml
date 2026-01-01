@@ -1,0 +1,31 @@
+name: Publish to Chrome Web Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_target:
+        description: 'Publish target (default or trusted_testers)'
+        required: true
+        default: 'default'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Zip extension
+        run: |
+          zip -r extension.zip . -x "*.git*" ".github*" "store_assets*" "README.md" "LICENSE"
+
+      - name: Upload to Chrome Web Store
+        uses: chrome-addon/upload-extension@v1
+        with:
+          extension-id: ${{ secrets.EXTENSION_ID }}
+          zip-path: extension.zip
+          client-id: ${{ secrets.CLIENT_ID }}
+          client-secret: ${{ secrets.CLIENT_SECRET }}
+          refresh-token: ${{ secrets.REFRESH_TOKEN }}
+          publish: true
+          publish-target: ${{ github.event.inputs.publish_target }}
