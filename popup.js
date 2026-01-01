@@ -1,3 +1,4 @@
+// Main entry point for the popup
 document.addEventListener('DOMContentLoaded', async () => {
   const container = document.getElementById('groups-container');
 
