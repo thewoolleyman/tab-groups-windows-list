@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tab Groups List</title>
+  <style>
+    body {
+      width: 300px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 10px;
+      background-color: #f9f9f9;
+    }
+    h2 {
+      font-size: 16px;
+      margin-top: 0;
+      color: #333;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+    .group-item {
+      margin-bottom: 5px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      overflow: hidden;
+      background-color: #fff;
+    }
+    .group-header {
+      padding: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      font-weight: bold;
+      transition: background-color 0.2s;
+    }
+    .group-header:hover {
+      background-color: #f0f0f0;
+    }
+    .group-color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 10px;
+      flex-shrink: 0;
+    }
+    .group-title {
+      flex-grow: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .expand-icon {
+      font-size: 10px;
+      margin-left: 5px;
+      transition: transform 0.2s;
+    }
+    .group-item.expanded .expand-icon {
+      transform: rotate(90deg);
+    }
+    .window-list {
+      display: none;
+      padding: 5px 10px 8px 30px;
+      background-color: #fafafa;
+      border-top: 1px solid #eee;
+    }
+    .group-item.expanded .window-list {
+      display: block;
+    }
+    .window-item {
+      font-size: 13px;
+      color: #555;
+      padding: 3px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .empty-msg {
+      font-style: italic;
+      color: #888;
+      text-align: center;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Tab Groups</h2>
+  <div id="groups-container"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
