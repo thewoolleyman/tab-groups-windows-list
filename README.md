@@ -70,6 +70,15 @@ Once you have your `EXTENSION_ID` from the first manual upload (using the ZIP fr
 
 The workflow will package the current code and upload it to the store for review.
 
+## Privacy Policy
+
+This extension respects your privacy. 
+
+- **Data Access**: It only accesses your tab groups, tabs, and windows information locally within your browser to generate the list.
+- **No Data Collection**: It does not collect, store, or transmit any personal or sensitive user data.
+- **No Third-Party Sharing**: No data is ever shared with third parties.
+- **No Tracking**: There are no background trackers, analytics, or advertising scripts.
+
 ## License
 
 This project is released into the public domain under the [UNLICENSE](LICENSE).
