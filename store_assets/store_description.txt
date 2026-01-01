@@ -1,14 +1,39 @@
-Title: Tab Groups & Windows List
+TAB GROUPS & WINDOWS LIST
 
-Summary: A simple 2-level expandable list of current tab groups and their window names.
+Simplify your tab management with a clear, hierarchical overview of your browser.
 
-Description:
-Tab Groups & Windows List is a minimalist productivity tool designed for users who heavily use Chrome's Tab Groups feature. 
+Are you a power user who relies on Chrome's Tab Groups to stay organized? Tab Groups & Windows List is a minimalist productivity tool designed to give you an instant, bird's-eye view of all your active groups across every open window.
 
-Key Features:
-- Instant Overview: See all your active tab groups in a single, clean list.
-- 2-Level Hierarchy: Expand any group to see exactly which window it resides in.
-- Native Integration: Uses Chrome's built-in APIs for real-time accuracy.
-- Visual Consistency: Matches your group colors for intuitive navigation.
+KEY FEATURES
 
-Perfect for "tab hoarders" and power users who need to quickly locate their grouped tabs across multiple browser windows.
+Instant 2-Level Overview: See all your tab groups in a clean, expandable list.
+
+Window Mapping: Click any group to reveal exactly which browser window it is currently in.
+
+Visual Consistency: Automatically matches your group colors (Blue, Red, Yellow, Green, etc.) for intuitive recognition.
+
+Lightweight and Fast: No background processes, no tracking, and zero impact on browser performance.
+
+Privacy Focused: Requires only the minimum necessary permissions to function.
+
+WHY USE THIS EXTENSION?
+
+When you have dozens of tabs spread across multiple windows, finding a specific group can be a challenge. This extension eliminates the "window hunting" by providing a centralized directory. Whether you are managing work projects, research, or social tabs, you can now locate your groups in seconds.
+
+HOW IT WORKS
+
+Click the extension icon in your toolbar.
+
+View the list of all active tab groups.
+
+Expand a group to see its host window name or ID.
+
+Navigate with confidence knowing exactly where your tabs are.
+
+OPEN SOURCE
+
+This extension is released into the public domain under the UNLICENSE. View the source code and contribute on GitHub.
+
+PERMISSIONS NOTE
+
+This extension requires access to tabGroups, tabs, and windows APIs solely to generate the list and help you navigate. Your data never leaves your browser.
