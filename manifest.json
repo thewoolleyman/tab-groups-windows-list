@@ -5,7 +5,6 @@
   "description": "A simple 2-level expandable list of current tab groups and their window names.",
   "permissions": [
     "tabGroups",
-    "tabs",
     "windows"
   ],
   "action": {
