@@ -1,77 +1,167 @@
-// Main entry point for the popup
 document.addEventListener('DOMContentLoaded', async () => {
-  const container = document.getElementById('groups-container');
+  const container = document.getElementById('container');
+  const helpBtn = document.getElementById('help-btn');
+  const helpModal = document.getElementById('help-modal');
+  const closeModal = document.getElementById('close-modal');
+
+  // Help Modal Logic
+  if (helpBtn) helpBtn.addEventListener('click', () => helpModal.style.display = 'block');
+  if (closeModal) closeModal.addEventListener('click', () => helpModal.style.display = 'none');
+  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.style.display = 'none'; });
 
   try {
-    // 1. Get all tab groups
+    // 1. Fetch all data
+    const windows = await chrome.windows.getAll({ populate: true });
     const groups = await chrome.tabGroups.query({});
-    
-    if (groups.length === 0) {
-      container.innerHTML = '<div class="empty-msg">No tab groups found.</div>';
+
+    if (windows.length === 0) {
+      container.innerHTML = '<div class="empty-msg">No windows found.</div>';
       return;
     }
 
-    // 2. Get all windows to map windowId to window name (if any)
-    const windows = await chrome.windows.getAll({ populate: false });
-    const windowMap = {};
+    container.innerHTML = ''; // Clear loading message
+
+    // 2. Build Hierarchy: Window -> Group -> Tab
     windows.forEach(win => {
-      // Note: Chrome doesn't have a built-in "window name" property in the API 
-      // unless set via chrome.windows.update({titlePreface: ...}) or similar.
-      // We'll use "Window [ID]" or the title if available.
-      // In Manifest V3, we can try to get the window title if it's set.
-      windowMap[win.id] = win.title || `Window ${win.id}`;
-    });
-
-    // 3. For each group, find which windows it belongs to
-    // A group belongs to a single window, but we need to find which one.
-    for (const group of groups) {
-      const groupItem = document.createElement('div');
-      groupItem.className = 'group-item';
-
-      const header = document.createElement('div');
-      header.className = 'group-header';
+      const windowEl = document.createElement('div');
+      windowEl.className = 'window-item';
       
-      // Color dot
-      const dot = document.createElement('div');
-      dot.className = 'group-color-dot';
-      dot.style.backgroundColor = mapColor(group.color);
-      
-      const title = document.createElement('div');
-      title.className = 'group-title';
-      title.textContent = group.title || `(Untitled Group)`;
+      const windowHeader = document.createElement('div');
+      windowHeader.className = 'window-header';
       
       const expandIcon = document.createElement('span');
       expandIcon.className = 'expand-icon';
       expandIcon.textContent = '▶';
-
-      header.appendChild(dot);
-      header.appendChild(title);
-      header.appendChild(expandIcon);
       
-      const windowList = document.createElement('div');
-      windowList.className = 'window-list';
+      const windowTitle = document.createElement('span');
+      // Use custom name if available, otherwise fallback to Window [ID]
+      windowTitle.textContent = win.title || `Window ${win.id}`;
       
-      // Find the window name for this group
-      const windowName = windowMap[group.windowId] || `Unknown Window`;
-      const windowItem = document.createElement('div');
-      windowItem.className = 'window-item';
-      windowItem.textContent = `📍 ${windowName}`;
-      windowList.appendChild(windowItem);
-
-      header.addEventListener('click', () => {
-        groupItem.classList.toggle('expanded');
-        expandIcon.textContent = groupItem.classList.contains('expanded') ? '▼' : '▶';
+      windowHeader.appendChild(expandIcon);
+      windowHeader.appendChild(windowTitle);
+      
+      // Click to focus window
+      windowHeader.addEventListener('click', (e) => {
+        if (e.target === expandIcon) {
+          windowEl.classList.toggle('expanded');
+        } else {
+          chrome.windows.update(win.id, { focused: true });
+        }
       });
 
-      groupItem.appendChild(header);
-      groupItem.appendChild(windowList);
-      container.appendChild(groupItem);
-    }
+      // Toggle expansion on icon click
+      expandIcon.addEventListener('click', (e) => {
+        e.stopPropagation();
+        windowEl.classList.toggle('expanded');
+      });
+
+      const windowContent = document.createElement('div');
+      windowContent.className = 'content';
+
+      // Find groups in this window
+      const groupsInWindow = groups.filter(g => g.windowId === win.id);
+      
+      // Also find tabs in this window that are NOT in a group
+      const ungroupedTabs = win.tabs.filter(t => t.groupId === -1);
+
+      // Add Groups
+      groupsInWindow.forEach(group => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'group-item';
+        
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'group-header';
+        
+        const gExpandIcon = document.createElement('span');
+        gExpandIcon.className = 'expand-icon';
+        gExpandIcon.textContent = '▶';
+        
+        const gDot = document.createElement('div');
+        gDot.className = 'group-dot';
+        gDot.style.backgroundColor = mapColor(group.color);
+        
+        const gTitle = document.createElement('span');
+        gTitle.textContent = group.title || '(Untitled Group)';
+        
+        groupHeader.appendChild(gExpandIcon);
+        groupHeader.appendChild(gDot);
+        groupHeader.appendChild(gTitle);
+        
+        // Click to focus first tab in group
+        groupHeader.addEventListener('click', (e) => {
+          if (e.target === gExpandIcon) {
+            groupEl.classList.toggle('expanded');
+          } else {
+            const firstTab = win.tabs.find(t => t.groupId === group.id);
+            if (firstTab) {
+              chrome.windows.update(win.id, { focused: true });
+              chrome.tabs.update(firstTab.id, { active: true });
+            }
+          }
+        });
+
+        gExpandIcon.addEventListener('click', (e) => {
+          e.stopPropagation();
+          groupEl.classList.toggle('expanded');
+        });
+
+        const groupContent = document.createElement('div');
+        groupContent.className = 'content';
+
+        // Add Tabs in this group
+        const tabsInGroup = win.tabs.filter(t => t.groupId === group.id);
+        tabsInGroup.forEach(tab => {
+          const tabEl = createTabElement(tab, win.id);
+          groupContent.appendChild(tabEl);
+        });
+
+        groupEl.appendChild(groupHeader);
+        groupEl.appendChild(groupContent);
+        windowContent.appendChild(groupEl);
+      });
+
+      // Add Ungrouped Tabs
+      if (ungroupedTabs.length > 0) {
+        ungroupedTabs.forEach(tab => {
+          const tabEl = createTabElement(tab, win.id);
+          tabEl.style.marginLeft = '24px'; // Align with groups
+          windowContent.appendChild(tabEl);
+        });
+      }
+
+      windowEl.appendChild(windowHeader);
+      windowEl.appendChild(windowContent);
+      container.appendChild(windowEl);
+    });
+
   } catch (error) {
-    console.error('Error loading tab groups:', error);
-    container.innerHTML = '<div class="empty-msg">Error loading groups.</div>';
+    console.error('Error loading data:', error);
+    container.innerHTML = '<div class="empty-msg">Error loading windows.</div>';
   }
 });
+
+function createTabElement(tab, windowId) {
+  const tabEl = document.createElement('div');
+  tabEl.className = 'tab-item';
+  
+  if (tab.favIconUrl) {
+    const icon = document.createElement('img');
+    icon.className = 'tab-icon';
+    icon.src = tab.favIconUrl;
+    tabEl.appendChild(icon);
+  }
+  
+  const title = document.createElement('span');
+  title.textContent = tab.title || 'New Tab';
+  tabEl.appendChild(title);
+  
+  tabEl.addEventListener('click', () => {
+    chrome.windows.update(windowId, { focused: true });
+    chrome.tabs.update(tab.id, { active: true });
+  });
+  
+  return tabEl;
+}
 
 function mapColor(chromeColor) {
   const colors = {
