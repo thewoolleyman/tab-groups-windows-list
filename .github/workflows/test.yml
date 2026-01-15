@@ -16,9 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
+          cache: 'npm' # Changed to npm
       - name: Install dependencies
-        run: pnpm install
+        run: npm install # Changed to npm install
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       - name: Run Unit Tests (Jest)
