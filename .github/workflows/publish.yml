@@ -3,29 +3,149 @@ name: Publish to Chrome Web Store
 on:
   workflow_dispatch:
     inputs:
-      publish_target:
-        description: 'Publish target (default or trusted_testers)'
+      version:
+        description: 'Version to publish (e.g., 1.2.0) - must match manifest.json'
         required: true
-        default: 'default'
+        type: string
+      publish_immediately:
+        description: 'Submit for review immediately after upload'
+        required: true
+        type: boolean
+        default: true
+
+env:
+  EXTENSION_ID: gialhfelganamiclidkigjnjdkdbohcb
 
 jobs:
-  build-and-publish:
+  publish:
+    name: Upload and Publish Extension
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Zip extension
+      - name: Validate version matches manifest
         run: |
-          zip -r extension.zip . -x "*.git*" ".github*" "store_assets*" "README.md" "LICENSE"
+          MANIFEST_VERSION=$(grep -oP '"version":\s*"\K[^"]+' manifest.json)
+          if [ "$MANIFEST_VERSION" != "${{ inputs.version }}" ]; then
+            echo "Error: Input version (${{ inputs.version }}) does not match manifest version ($MANIFEST_VERSION)"
+            exit 1
+          fi
+          echo "Version validated: $MANIFEST_VERSION"
+
+      - name: Create extension ZIP package
+        run: |
+          mkdir -p dist
+          zip -r dist/extension-v${{ inputs.version }}.zip \
+            manifest.json \
+            popup.html \
+            popup.js \
+            icons/ \
+            -x "*.git*" -x "node_modules/*" -x "tests/*" -x "screenshots/*" \
+            -x "playwright-report/*" -x "*.config.js" -x "package*.json" \
+            -x ".github/*" -x "dist/*"
+          echo "Created package: dist/extension-v${{ inputs.version }}.zip"
+          ls -la dist/
+
+      - name: Get OAuth Access Token
+        id: get_token
+        run: |
+          RESPONSE=$(curl -s -X POST "https://oauth2.googleapis.com/token" \
+            -d "client_id=${{ secrets.CHROME_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.CHROME_CLIENT_SECRET }}" \
+            -d "refresh_token=${{ secrets.CHROME_REFRESH_TOKEN }}" \
+            -d "grant_type=refresh_token")
+          
+          ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
+          
+          if [ "$ACCESS_TOKEN" == "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+            echo "Error: Failed to get access token"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "access_token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
+          echo "Successfully obtained access token"
 
       - name: Upload to Chrome Web Store
-        uses: chrome-addon/upload-extension@v1
+        id: upload
+        run: |
+          echo "Uploading extension to Chrome Web Store..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -X POST \
+            -T dist/extension-v${{ inputs.version }}.zip \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ env.EXTENSION_ID }}:upload")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: Upload failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          
+          UPLOAD_STATE=$(echo $BODY | jq -r '.uploadState')
+          echo "Upload state: $UPLOAD_STATE"
+          
+          if [ "$UPLOAD_STATE" == "FAILURE" ]; then
+            echo "Upload failed:"
+            echo $BODY | jq '.itemError'
+            exit 1
+          fi
+          
+          echo "Upload successful!"
+
+      - name: Submit for Review
+        if: ${{ inputs.publish_immediately }}
+        run: |
+          echo "Submitting extension for review..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ env.EXTENSION_ID }}:publish")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: Publish request failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          
+          echo "Extension submitted for review successfully!"
+          echo ""
+          echo "Check the review status at:"
+          echo "https://chrome.google.com/webstore/devconsole"
+
+      - name: Check Extension Status
+        run: |
+          echo "Fetching current extension status..."
+          
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -X GET \
+            "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ env.EXTENSION_ID }}:fetchStatus")
+          
+          echo "Extension Status:"
+          echo $RESPONSE | jq '.'
+
+      - name: Upload package as artifact
+        uses: actions/upload-artifact@v4
         with:
-          extension-id: ${{ secrets.EXTENSION_ID }}
-          zip-path: extension.zip
-          client-id: ${{ secrets.CLIENT_ID }}
-          client-secret: ${{ secrets.CLIENT_SECRET }}
-          refresh-token: ${{ secrets.REFRESH_TOKEN }}
-          publish: true
-          publish-target: ${{ github.event.inputs.publish_target }}
+          name: extension-package-v${{ inputs.version }}
+          path: dist/extension-v${{ inputs.version }}.zip
+          retention-days: 30
