@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  const container = document.getElementById('container');
+  const container = document.getElementById('groups-container');
   const helpBtn = document.getElementById('help-btn');
   const helpModal = document.getElementById('help-modal');
   const closeModal = document.getElementById('close-modal');
