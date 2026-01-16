@@ -1,27 +1,21 @@
 // @ts-check
 const { defineConfig } = require("@playwright/test");
-const path = require("path");
 
 /**
- * @see https://playwright.dev/docs/test-configuration
+ * Playwright configuration for Chrome extension E2E testing
+ * @see https://playwright.dev/docs/chrome-extensions
  */
 module.exports = defineConfig({
   testDir: "./tests",
-  fullyParallel: true,
+  testMatch: "**/*.e2e.spec.js",
+  fullyParallel: false, // Extensions require sequential execution
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1, // Extensions require single worker
   reporter: "html",
+  timeout: 30000,
   use: {
     trace: "on-first-retry",
-    headless: false, // Extensions often require non-headless
-    browserName: "chromium",
-    // Custom launch options to load the extension
-    launchOptions: {
-      args: [
-        `--disable-extensions-except=${path.join(__dirname)}`,
-        `--load-extension=${path.join(__dirname)}`,
-      ],
-    },
   },
+  // No projects needed - we use custom fixtures for extension loading
 });
