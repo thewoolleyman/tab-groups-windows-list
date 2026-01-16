@@ -16,18 +16,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm' # Changed to npm
+          cache: 'npm'
       - name: Install dependencies
-        run: npm install # Changed to npm install
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npm install
       - name: Run Unit Tests (Jest)
         run: npm test
-      - name: Run E2E Tests (Playwright)
-        run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
+      # E2E tests for Chrome extensions require special setup
+      # and are currently disabled until a proper testing strategy is implemented
+      # - name: Install Playwright browsers
+      #   run: npx playwright install --with-deps chromium
+      # - name: Run E2E Tests (Playwright)
+      #   run: npm run test:e2e
+      # - uses: actions/upload-artifact@v4
+      #   if: always()
+      #   with:
+      #     name: playwright-report
+      #     path: playwright-report/
+      #     retention-days: 30

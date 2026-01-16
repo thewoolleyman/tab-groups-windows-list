@@ -3,20 +3,6 @@
  * These tests verify the core logic that builds the 3-level hierarchy
  */
 
-// Mock the chrome API
-global.chrome = {
-  windows: {
-    getAll: jest.fn(),
-    update: jest.fn(),
-  },
-  tabGroups: {
-    query: jest.fn(),
-  },
-  tabs: {
-    update: jest.fn(),
-  },
-};
-
 // Import the mapColor function (we'll need to export it from popup.js)
 // For now, we'll define it here to test it
 function mapColor(chromeColor) {
