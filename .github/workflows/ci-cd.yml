@@ -1,0 +1,232 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  EXTENSION_ID: gialhfelganamiclidkigjnjdkdbohcb
+
+jobs:
+  # =============================================================================
+  # Stage 1: Build - Package the extension and extract version
+  # =============================================================================
+  build:
+    name: Build Extension
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from manifest.json
+        id: get_version
+        run: |
+          VERSION=$(grep -oP '"version":\s*"\K[^"]+' manifest.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Create extension ZIP package
+        run: |
+          mkdir -p dist
+          zip -r dist/extension-v${{ steps.get_version.outputs.version }}.zip \
+            manifest.json \
+            popup.html \
+            popup.js \
+            icons/ \
+            -x "*.git*" -x "node_modules/*" -x "tests/*" -x "screenshots/*" \
+            -x "playwright-report/*" -x "*.config.js" -x "package*.json" \
+            -x ".github/*" -x "dist/*"
+          echo "Created package: dist/extension-v${{ steps.get_version.outputs.version }}.zip"
+          ls -la dist/
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-package
+          path: dist/extension-v${{ steps.get_version.outputs.version }}.zip
+          retention-days: 30
+
+  # =============================================================================
+  # Stage 2: Test - Run unit and E2E tests
+  # =============================================================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Unit Tests (Jest)
+        run: npm test
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Create screenshots directory
+        run: mkdir -p screenshots
+
+      - name: Run E2E Tests (Playwright)
+        run: xvfb-run --auto-servernum -- npm run test:e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Upload E2E screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: screenshots/
+          retention-days: 30
+
+  # =============================================================================
+  # Stage 3: Publish - Manual approval gate, then publish to Chrome Web Store
+  # =============================================================================
+  publish:
+    name: Publish to Chrome Web Store
+    runs-on: ubuntu-latest
+    needs: [build, unit-tests, e2e-tests]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: extension-package
+          path: dist/
+
+      - name: Display version being published
+        run: |
+          echo "Publishing version: ${{ needs.build.outputs.version }}"
+          ls -la dist/
+
+      - name: Get OAuth Access Token
+        id: get_token
+        run: |
+          RESPONSE=$(curl -s -X POST "https://oauth2.googleapis.com/token" \
+            -d "client_id=${{ secrets.CHROME_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.CHROME_CLIENT_SECRET }}" \
+            -d "refresh_token=${{ secrets.CHROME_REFRESH_TOKEN }}" \
+            -d "grant_type=refresh_token")
+          
+          ACCESS_TOKEN=$(echo $RESPONSE | jq -r '.access_token')
+          
+          if [ "$ACCESS_TOKEN" == "null" ] || [ -z "$ACCESS_TOKEN" ]; then
+            echo "Error: Failed to get access token"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "access_token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
+          echo "Successfully obtained access token"
+
+      - name: Upload to Chrome Web Store
+        run: |
+          echo "Uploading extension v${{ needs.build.outputs.version }} to Chrome Web Store..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -X POST \
+            -T dist/extension-v${{ needs.build.outputs.version }}.zip \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ env.EXTENSION_ID }}:upload")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: Upload failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          
+          UPLOAD_STATE=$(echo $BODY | jq -r '.uploadState')
+          echo "Upload state: $UPLOAD_STATE"
+          
+          if [ "$UPLOAD_STATE" == "FAILURE" ]; then
+            echo "Upload failed:"
+            echo $BODY | jq '.itemError'
+            exit 1
+          fi
+          
+          echo "Upload successful!"
+
+      - name: Submit for Review
+        run: |
+          echo "Submitting extension v${{ needs.build.outputs.version }} for review..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ env.EXTENSION_ID }}:publish")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: Publish request failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          
+          echo "Extension v${{ needs.build.outputs.version }} submitted for review successfully!"
+
+      - name: Check Extension Status
+        run: |
+          echo "Fetching current extension status..."
+          
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer ${{ steps.get_token.outputs.access_token }}" \
+            -H "x-goog-api-version: 2" \
+            -X GET \
+            "https://chromewebstore.googleapis.com/v2/publishers/${{ secrets.CHROME_PUBLISHER_ID }}/items/${{ env.EXTENSION_ID }}:fetchStatus")
+          
+          echo "Extension Status:"
+          echo $RESPONSE | jq '.'
