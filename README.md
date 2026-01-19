@@ -1,6 +1,6 @@
 # Tab Groups & Windows List
 
-A simple Chrome extension that provides a 2-level expandable list of your current tab groups and the windows they belong to.
+A simple Chrome extension that provides a 3-level expandable list of your current tab groups and the windows they belong to.
 
 **Chrome Web Store**: [Tab Groups & Windows List](https://chromewebstore.google.com/detail/tab-groups-windows-list/gialhfelganamiclidkigjnjdkdbohcb)
 
@@ -8,67 +8,76 @@ A simple Chrome extension that provides a 2-level expandable list of your curren
 
 ## Features
 
-- **Expandable List**: View all your tab groups at a glance and expand them to see their host window.
+- **3-Level Hierarchy**: View all your windows, tab groups, and tabs in a nested, expandable list.
 - **Color Matching**: Automatically matches the color of your tab groups for easy identification.
 - **Lightweight**: Minimalist design with no background processes.
 
 ## Installation (Manual)
 
-1. Download this repository as a ZIP file and extract it.
-2. Open Chrome and go to `chrome://extensions/`.
-3. Enable **Developer mode** in the top right corner.
-4. Click **Load unpacked** and select the extracted folder.
+1. Download the latest release ZIP file from the [Releases](https://github.com/thewoolleyman/tab-groups-windows-list/releases) page.
+2. Unzip the file.
+3. Open Chrome and go to `chrome://extensions/`.
+4. Enable **Developer mode** in the top right corner.
+5. Click **Load unpacked** and select the extracted folder.
 
-## Developers
+## CI/CD Pipeline for Developers
 
-This section provides instructions for developers looking to maintain or deploy this extension.
+This repository has a unified CI/CD pipeline that automates the build, test, and release process. Here’s how it works:
 
-### Automated Publishing to Chrome Web Store
+### Pipeline Stages
 
-This repository is equipped with a GitHub Action for automated publishing. This allows for a "1-button" deployment to the Chrome Web Store.
+The pipeline consists of four stages:
 
-#### Prerequisites
+| Stage | Job Name | Description |
+|-------|----------|-------------|
+| **Build** | `build` | Packages the extension and extracts the version from `manifest.json`. |
+| **Test** | `unit-tests`, `e2e-tests` | Runs unit and E2E tests in parallel after the build completes. |
+| **Release** | `release` | Automatically creates a GitHub Release with the packaged extension if tests pass. |
+| **Publish** | `publish` | Publishes the extension to the Chrome Web Store after manual approval. |
 
-To use the automated deployment, you must first:
-1. **Register as a Chrome Web Store Developer**: Sign up at the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole/).
-2. **Create a New Item**: Manually upload the first version of the extension to get an `EXTENSION_ID`.
-3. **Setup Google Cloud Project**:
-   - Create a project in the [Google Cloud Console](https://console.cloud.google.com/).
-   - Enable the **Chrome Web Store API**.
-   - Create **OAuth 2.0 Client IDs** (Web application) to get a `CLIENT_ID` and `CLIENT_SECRET`.
-   - Obtain a `REFRESH_TOKEN` using the Google OAuth 2.0 Playground or a similar tool.
+### Automated GitHub Releases
 
-#### GitHub Secrets Configuration
+On every successful push to `master` where the tests pass, a GitHub Release is automatically created. The release is tagged with the version from `manifest.json` and includes the packaged `extension.zip` file.
 
-Add the following secrets to your GitHub repository (**Settings > Secrets and variables > Actions**):
+### Manual Publish to Chrome Web Store
+
+While the GitHub Release is automatic, publishing to the Chrome Web Store requires **manual approval** to prevent accidental deployments.
+
+#### How to Manually Approve a Publish
+
+1. **Push to `master`**: Make sure your changes are pushed to the `master` branch.
+2. **Wait for Tests to Pass**: The pipeline will run the build and test stages automatically.
+3. **Review Deployment**: Once the tests pass, the `publish` job will start and immediately pause, showing a "Waiting for review" status.
+4. **Approve in GitHub**: Go to your repository’s **Actions** tab. You will see the running pipeline. Click on it, and you will see a **"Review deployments"** button. Click it, select the `production` environment, and click **"Approve and deploy"**.
+
+   ![Review Deployments](https://i.imgur.com/your-image-url.png) *<-- Placeholder for screenshot of the approval button*
+
+5. **Automatic Publish**: Once approved, the workflow will proceed to upload and submit the extension to the Chrome Web Store automatically.
+
+### One-Time Setup for Publishing
+
+To enable the manual publish feature, you need to configure a `production` environment and add secrets.
+
+#### 1. Create the `production` Environment
+
+1. Go to your repository **Settings > Environments**.
+2. Click **New environment**.
+3. Name it `production`.
+4. Enable **Required reviewers** and add yourself.
+5. Click **Save protection rules**.
+
+#### 2. Add GitHub Secrets
+
+Add the following secrets to your repository (**Settings > Secrets and variables > Actions**):
 
 | Secret Name | Description |
 |-------------|-------------|
-| `EXTENSION_ID` | The unique ID of your extension in the Chrome Web Store (`gialhfelganamiclidkigjnjdkdbohcb`). |
-| `CLIENT_ID` | Your Google Cloud OAuth 2.0 Client ID. |
-| `CLIENT_SECRET` | Your Google Cloud OAuth 2.0 Client Secret. |
-| `REFRESH_TOKEN` | The OAuth 2.0 Refresh Token for the Chrome Web Store API. |
+| `CHROME_CLIENT_ID` | Your Google Cloud OAuth 2.0 Client ID. |
+| `CHROME_CLIENT_SECRET` | Your Google Cloud OAuth 2.0 Client Secret. |
+| `CHROME_REFRESH_TOKEN` | The OAuth 2.0 Refresh Token for the Chrome Web Store API. |
+| `CHROME_PUBLISHER_ID` | Your Chrome Web Store Publisher ID. |
 
-#### Triggering a Release (GitHub Release)
-
-Before you can publish to the Chrome Web Store, you need a ZIP file of the extension. You can generate this and create a GitHub Release using the **Create Release** workflow:
-
-1. Navigate to the **Actions** tab.
-2. Select the **Create Release** workflow.
-3. Click **Run workflow**.
-4. Choose the `version_type` (patch, minor, or major).
-5. Once complete, a new release will be created with the `extension.zip` attached, and the version in the repository will be automatically incremented.
-
-#### Triggering a Deployment (Chrome Web Store)
-
-Once you have your `EXTENSION_ID` from the first manual upload (using the ZIP from the GitHub Release), you can use the **Publish to Chrome Web Store** workflow:
-
-1. Navigate to the **Actions** tab.
-2. Select the **Publish to Chrome Web Store** workflow.
-3. Click **Run workflow**.
-4. Choose the `publish_target` (default is `default`).
-
-The workflow will package the current code and upload it to the store for review.
+For detailed instructions on how to obtain these credentials, see the [Chrome Web Store API Credentials Guide](chrome-webstore-api-credentials.md).
 
 ## Privacy Policy
 
