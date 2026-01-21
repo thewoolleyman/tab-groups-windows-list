@@ -6,8 +6,8 @@ on:
       - 'claude/**'
 
 jobs:
-  auto-merge:
-    name: Auto-merge to master
+  test-and-merge:
+    name: Test and Create PR
     runs-on: ubuntu-latest
     if: github.ref != 'refs/heads/master'
     permissions:
@@ -37,24 +37,31 @@ jobs:
       - name: Run E2E Tests
         run: xvfb-run --auto-servernum -- npm run test:e2e
 
-      - name: Merge to master
+      - name: Create or Update PR
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Get current branch name
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          echo "Merging $BRANCH_NAME to master"
+          echo "Branch: $BRANCH_NAME"
 
-          # Fetch and checkout master
-          git fetch origin master
-          git checkout master
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base master --json number --jq '.[0].number')
 
-          # Merge the claude branch
-          git merge origin/$BRANCH_NAME --no-edit
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #$EXISTING_PR already exists"
+            PR_NUMBER=$EXISTING_PR
+          else
+            echo "Creating new PR"
+            PR_URL=$(gh pr create \
+              --title "Auto-merge: $BRANCH_NAME" \
+              --body "Automated PR from claude branch. All tests passed." \
+              --base master \
+              --head "$BRANCH_NAME")
+            PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+            echo "Created PR #$PR_NUMBER"
+          fi
 
-          # Push to master
-          git push origin master
+          # Enable auto-merge
+          gh pr merge "$PR_NUMBER" --auto --merge
+          echo "Auto-merge enabled for PR #$PR_NUMBER"
