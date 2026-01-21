@@ -120,11 +120,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         windowContent.appendChild(groupEl);
       });
 
-      // Add Ungrouped Tabs
+      // Add Ungrouped Tabs (directly under window, not in a group)
       if (ungroupedTabs.length > 0) {
         ungroupedTabs.forEach(tab => {
-          const tabEl = createTabElement(tab, win.id);
-          tabEl.style.marginLeft = '24px'; // Align with groups
+          const tabEl = createTabElement(tab, win.id, true); // Pass true to mark as ungrouped
           windowContent.appendChild(tabEl);
         });
       }
@@ -140,9 +139,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-function createTabElement(tab, windowId) {
+function createTabElement(tab, windowId, isUngrouped = false) {
   const tabEl = document.createElement('div');
-  tabEl.className = 'tab-item';
+  tabEl.className = isUngrouped ? 'tab-item ungrouped-tab' : 'tab-item';
   
   if (tab.favIconUrl) {
     const icon = document.createElement('img');

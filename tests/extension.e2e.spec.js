@@ -45,6 +45,83 @@ const richMockData = {
   ],
 };
 
+// =============================================================================
+// BUG FIX TEST DATA: Windows with ungrouped tabs and mixed scenarios
+// =============================================================================
+
+// Bug #1: Tab titles should show the actual tab title (this is already working, 
+// but we need to verify the window title is shown correctly for the WINDOW, not tabs)
+
+// Bug #2: Windows with NO groups should still show all their tabs
+const windowWithNoGroupsMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Window With No Groups",
+      tabs: [
+        { id: 1, title: "Ungrouped Tab 1", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 2, title: "Ungrouped Tab 2", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 3, title: "Ungrouped Tab 3", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+      ],
+    },
+  ],
+  groups: [],
+};
+
+// Bug #2 continued: Windows with SOME grouped and SOME ungrouped tabs
+const mixedGroupedUngroupedMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Mixed Window",
+      tabs: [
+        { id: 1, title: "Grouped Tab A", groupId: 1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 2, title: "Grouped Tab B", groupId: 1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 3, title: "Ungrouped Tab X", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 4, title: "Ungrouped Tab Y", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+      ],
+    },
+  ],
+  groups: [
+    { id: 1, title: "My Group", color: "blue", windowId: 1 },
+  ],
+};
+
+// Multiple windows with different scenarios
+const multiWindowMixedMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Window With Groups Only",
+      tabs: [
+        { id: 1, title: "Tab in Group 1", groupId: 1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 2, title: "Tab in Group 2", groupId: 2, favIconUrl: "https://example.com/favicon.ico" },
+      ],
+    },
+    {
+      id: 2,
+      title: "Window With No Groups",
+      tabs: [
+        { id: 3, title: "Standalone Tab A", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 4, title: "Standalone Tab B", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+      ],
+    },
+    {
+      id: 3,
+      title: "Window With Mixed Tabs",
+      tabs: [
+        { id: 5, title: "Grouped Tab", groupId: 3, favIconUrl: "https://example.com/favicon.ico" },
+        { id: 6, title: "Loose Tab", groupId: -1, favIconUrl: "https://example.com/favicon.ico" },
+      ],
+    },
+  ],
+  groups: [
+    { id: 1, title: "Group A", color: "blue", windowId: 1 },
+    { id: 2, title: "Group B", color: "green", windowId: 1 },
+    { id: 3, title: "Group C", color: "red", windowId: 3 },
+  ],
+};
+
 // Helper function to set up the page with mock data
 async function setupPageWithMockData(page, mockData = richMockData) {
   await page.goto(`file://${popupPath}`);
@@ -92,6 +169,185 @@ async function expandAllHierarchy(page) {
     await page.waitForTimeout(100);
   }
 }
+
+// =============================================================================
+// BUG FIX TESTS - TDD: These tests should FAIL initially
+// =============================================================================
+
+test.describe("BUG FIX #1: Tab titles display correctly", () => {
+  test("tabs should display their actual title, not the window title", async ({ page }) => {
+    await setupPageWithMockData(page, richMockData);
+    
+    // Expand first window and first group
+    const firstWindow = page.locator(".window-item").first();
+    await firstWindow.locator(".expand-icon").first().click();
+    
+    const firstGroup = firstWindow.locator(".group-item").first();
+    await firstGroup.locator(".expand-icon").first().click();
+    
+    // Verify tab titles are correct (not the window title)
+    const tabItems = firstGroup.locator(".tab-item");
+    await expect(tabItems.first()).toContainText("Project Dashboard");
+    await expect(tabItems.nth(1)).toContainText("Code Review");
+    
+    // Make sure they DON'T contain the window title
+    await expect(tabItems.first()).not.toContainText("Work Window");
+    await expect(tabItems.nth(1)).not.toContainText("Work Window");
+  });
+});
+
+test.describe("BUG FIX #2: Windows with no groups show all tabs", () => {
+  test("window with NO groups should still be displayed", async ({ page }) => {
+    await setupPageWithMockData(page, windowWithNoGroupsMockData);
+    
+    // The window should be visible
+    const windows = page.locator(".window-item");
+    await expect(windows).toHaveCount(1);
+    
+    // Window title should be correct
+    await expect(page.locator(".window-header")).toContainText("Window With No Groups");
+  });
+
+  test("window with NO groups should show all ungrouped tabs when expanded", async ({ page }) => {
+    await setupPageWithMockData(page, windowWithNoGroupsMockData);
+    
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+    
+    // All 3 ungrouped tabs should be visible
+    const tabItems = windowItem.locator(".tab-item");
+    await expect(tabItems).toHaveCount(3);
+    
+    // Verify tab titles
+    await expect(tabItems.nth(0)).toContainText("Ungrouped Tab 1");
+    await expect(tabItems.nth(1)).toContainText("Ungrouped Tab 2");
+    await expect(tabItems.nth(2)).toContainText("Ungrouped Tab 3");
+  });
+
+  test("window with MIXED grouped and ungrouped tabs should show both", async ({ page }) => {
+    await setupPageWithMockData(page, mixedGroupedUngroupedMockData);
+    
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+    
+    // Should have 1 group
+    const groups = windowItem.locator(".group-item");
+    await expect(groups).toHaveCount(1);
+    
+    // Expand the group
+    await groups.first().locator(".expand-icon").first().click();
+    
+    // Group should have 2 tabs
+    const groupedTabs = groups.first().locator(".tab-item");
+    await expect(groupedTabs).toHaveCount(2);
+    await expect(groupedTabs.nth(0)).toContainText("Grouped Tab A");
+    await expect(groupedTabs.nth(1)).toContainText("Grouped Tab B");
+    
+    // Window content should also have 2 ungrouped tabs (direct children, not in a group)
+    // These should be siblings of the group, not inside it
+    const ungroupedTabs = windowItem.locator(".content > .ungrouped-tab");
+    await expect(ungroupedTabs).toHaveCount(2);
+    await expect(ungroupedTabs.nth(0)).toContainText("Ungrouped Tab X");
+    await expect(ungroupedTabs.nth(1)).toContainText("Ungrouped Tab Y");
+  });
+
+  test("multiple windows with different scenarios should all display correctly", async ({ page }) => {
+    await setupPageWithMockData(page, multiWindowMixedMockData);
+    
+    // Should have 3 windows
+    const windows = page.locator(".window-item");
+    await expect(windows).toHaveCount(3);
+    
+    // Expand all windows
+    for (let i = 0; i < 3; i++) {
+      await windows.nth(i).locator(".expand-icon").first().click();
+      await page.waitForTimeout(100);
+    }
+    
+    // Window 1: Groups Only - should have 2 groups, no ungrouped tabs
+    const window1 = windows.nth(0);
+    await expect(window1.locator(".group-item")).toHaveCount(2);
+    await expect(window1.locator(".content > .ungrouped-tab")).toHaveCount(0);
+    
+    // Window 2: No Groups - should have 0 groups, 2 ungrouped tabs
+    const window2 = windows.nth(1);
+    await expect(window2.locator(".group-item")).toHaveCount(0);
+    await expect(window2.locator(".content > .ungrouped-tab")).toHaveCount(2);
+    await expect(window2.locator(".tab-item").nth(0)).toContainText("Standalone Tab A");
+    await expect(window2.locator(".tab-item").nth(1)).toContainText("Standalone Tab B");
+    
+    // Window 3: Mixed - should have 1 group AND 1 ungrouped tab
+    const window3 = windows.nth(2);
+    await expect(window3.locator(".group-item")).toHaveCount(1);
+    await expect(window3.locator(".content > .ungrouped-tab")).toHaveCount(1);
+    await expect(window3.locator(".content > .ungrouped-tab").first()).toContainText("Loose Tab");
+  });
+
+  test("should capture screenshot of window with no groups", async ({ page }) => {
+    await setupPageWithMockData(page, windowWithNoGroupsMockData);
+    
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+    await page.waitForTimeout(300);
+    
+    await page.screenshot({
+      path: "screenshots/window-no-groups.png",
+      fullPage: true,
+    });
+    
+    // Verify structure
+    const tabItems = windowItem.locator(".tab-item");
+    await expect(tabItems).toHaveCount(3);
+  });
+
+  test("should capture screenshot of mixed grouped and ungrouped tabs", async ({ page }) => {
+    await setupPageWithMockData(page, mixedGroupedUngroupedMockData);
+    
+    // Expand window and group
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+    await windowItem.locator(".group-item").first().locator(".expand-icon").first().click();
+    await page.waitForTimeout(300);
+    
+    await page.screenshot({
+      path: "screenshots/mixed-grouped-ungrouped.png",
+      fullPage: true,
+    });
+  });
+
+  test("should capture screenshot of multiple windows with different scenarios", async ({ page }) => {
+    await setupPageWithMockData(page, multiWindowMixedMockData);
+    
+    // Expand all windows
+    const windows = page.locator(".window-item");
+    for (let i = 0; i < 3; i++) {
+      await windows.nth(i).locator(".expand-icon").first().click();
+      await page.waitForTimeout(100);
+    }
+    
+    // Expand all groups
+    const groups = page.locator(".group-item");
+    const groupCount = await groups.count();
+    for (let i = 0; i < groupCount; i++) {
+      await groups.nth(i).locator(".expand-icon").first().click();
+      await page.waitForTimeout(100);
+    }
+    
+    await page.waitForTimeout(300);
+    
+    await page.screenshot({
+      path: "screenshots/multi-window-scenarios.png",
+      fullPage: true,
+    });
+  });
+});
+
+// =============================================================================
+// EXISTING TESTS - These should continue to pass
+// =============================================================================
 
 test.describe("Extension Popup UI Structure", () => {
   test.beforeEach(async ({ page }) => {
