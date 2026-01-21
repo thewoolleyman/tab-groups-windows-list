@@ -164,6 +164,34 @@ jobs:
             --generate-notes \
             dist/extension-v$VERSION.zip
 
+      - name: Bump version for next release
+        if: steps.check_release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get current version and calculate next patch version
+          CURRENT="${{ needs.build.outputs.version }}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="$MAJOR.$MINOR.$NEXT_PATCH"
+
+          echo "Bumping version: $CURRENT -> $NEXT_VERSION"
+
+          # Update manifest.json with new version
+          sed -i "s/\"version\": \"$CURRENT\"/\"version\": \"$NEXT_VERSION\"/" manifest.json
+
+          # Verify the change
+          grep '"version"' manifest.json
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Commit and push
+          git add manifest.json
+          git commit -m "chore: Bump version to $NEXT_VERSION [skip ci]"
+          git push origin master
+
   # =============================================================================
   # Stage 4: Publish - Manual approval gate, then publish to Chrome Web Store
   # Only runs when a new release was actually created (skips if version unchanged)
