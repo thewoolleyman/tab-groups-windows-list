@@ -6,7 +6,7 @@ on:
       - 'claude/**'
 
 jobs:
-  test-and-merge:
+  test-and-pr:
     name: Test and Create PR
     runs-on: ubuntu-latest
     if: github.ref != 'refs/heads/master'
@@ -37,7 +37,7 @@ jobs:
       - name: Run E2E Tests
         run: xvfb-run --auto-servernum -- npm run test:e2e
 
-      - name: Create or Update PR
+      - name: Create PR
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,19 +49,12 @@ jobs:
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base master --json number --jq '.[0].number')
 
           if [ -n "$EXISTING_PR" ]; then
-            echo "PR #$EXISTING_PR already exists"
-            PR_NUMBER=$EXISTING_PR
+            echo "PR #$EXISTING_PR already exists for this branch"
           else
             echo "Creating new PR"
-            PR_URL=$(gh pr create \
+            gh pr create \
               --title "Auto-merge: $BRANCH_NAME" \
               --body "Automated PR from claude branch. All tests passed." \
               --base master \
-              --head "$BRANCH_NAME")
-            PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-            echo "Created PR #$PR_NUMBER"
+              --head "$BRANCH_NAME"
           fi
-
-          # Enable auto-merge
-          gh pr merge "$PR_NUMBER" --auto --merge
-          echo "Auto-merge enabled for PR #$PR_NUMBER"
