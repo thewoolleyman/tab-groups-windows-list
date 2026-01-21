@@ -1,53 +1,16 @@
-/**
- * Tab Groups & Windows List - Chrome Extension Popup
- *
- * Features:
- * - 3-level hierarchy: Window > Tab Group > Tab
- * - Correct tab ordering (interleaved groups and ungrouped tabs)
- * - Live UI updates via Chrome event listeners
- */
+document.addEventListener('DOMContentLoaded', async () => {
+  const container = document.getElementById('groups-container');
+  const helpBtn = document.getElementById('help-btn');
+  const helpModal = document.getElementById('help-modal');
+  const closeModal = document.getElementById('close-modal');
 
-// Global state
-let container;
-let helpModal;
-
-/**
- * Debounce function to prevent rapid re-renders
- * @param {Function} fn - Function to debounce
- * @param {number} delay - Delay in milliseconds
- * @returns {Function} - Debounced function
- */
-function debounce(fn, delay) {
-  let timeoutId;
-  return (...args) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), delay);
-  };
-}
-
-/**
- * Refresh the UI by re-fetching data and re-rendering
- * Exposed globally for testing and event handlers
- */
-async function refreshUI() {
-  if (!container) return;
+  // Help Modal Logic
+  if (helpBtn) helpBtn.addEventListener('click', () => helpModal.style.display = 'block');
+  if (closeModal) closeModal.addEventListener('click', () => helpModal.style.display = 'none');
+  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.style.display = 'none'; });
 
   try {
-    // Preserve expansion state before re-render
-    const expandedWindows = new Set();
-    const expandedGroups = new Set();
-
-    document.querySelectorAll('.window-item.expanded').forEach(el => {
-      const title = el.querySelector('.window-header span:last-child')?.textContent;
-      if (title) expandedWindows.add(title);
-    });
-
-    document.querySelectorAll('.group-item.expanded').forEach(el => {
-      const title = el.querySelector('.group-header span:last-child')?.textContent;
-      if (title) expandedGroups.add(title);
-    });
-
-    // Fetch fresh data
+    // 1. Fetch all data
     const windows = await chrome.windows.getAll({ populate: true });
     const groups = await chrome.tabGroups.query({});
 
@@ -56,33 +19,27 @@ async function refreshUI() {
       return;
     }
 
-    container.innerHTML = ''; // Clear current content
+    container.innerHTML = ''; // Clear loading message
 
-    // Build Hierarchy: Window -> Group -> Tab
+    // 2. Build Hierarchy: Window -> Group -> Tab
     windows.forEach(win => {
       const windowEl = document.createElement('div');
       windowEl.className = 'window-item';
-
-      const windowTitle = win.title || `Window ${win.id}`;
-
-      // Restore expansion state
-      if (expandedWindows.has(windowTitle)) {
-        windowEl.classList.add('expanded');
-      }
-
+      
       const windowHeader = document.createElement('div');
       windowHeader.className = 'window-header';
-
+      
       const expandIcon = document.createElement('span');
       expandIcon.className = 'expand-icon';
       expandIcon.textContent = '▶';
-
-      const windowTitleEl = document.createElement('span');
-      windowTitleEl.textContent = windowTitle;
-
+      
+      const windowTitle = document.createElement('span');
+      // Use custom name if available, otherwise fallback to Window [ID]
+      windowTitle.textContent = win.title || `Window ${win.id}`;
+      
       windowHeader.appendChild(expandIcon);
-      windowHeader.appendChild(windowTitleEl);
-
+      windowHeader.appendChild(windowTitle);
+      
       // Click to focus window
       windowHeader.addEventListener('click', (e) => {
         if (e.target === expandIcon) {
@@ -113,7 +70,7 @@ async function refreshUI() {
           const tabEl = createTabElement(item.tab, win.id, true);
           windowContent.appendChild(tabEl);
         } else if (item.type === 'group') {
-          const groupEl = createGroupElement(item.group, item.tabs, win.id, expandedGroups);
+          const groupEl = createGroupElement(item.group, item.tabs, win.id);
           windowContent.appendChild(groupEl);
         }
       });
@@ -127,84 +84,28 @@ async function refreshUI() {
     console.error('Error loading data:', error);
     container.innerHTML = '<div class="empty-msg">Error loading windows.</div>';
   }
-}
-
-// Expose refreshUI globally for testing
-window.refreshUI = refreshUI;
-
-/**
- * Set up Chrome event listeners for live UI updates
- */
-function setupEventListeners() {
-  // Debounced refresh to prevent rapid re-renders
-  const debouncedRefresh = debounce(refreshUI, 150);
-
-  // Tab events
-  if (chrome.tabs) {
-    chrome.tabs.onCreated.addListener(debouncedRefresh);
-    chrome.tabs.onRemoved.addListener(debouncedRefresh);
-    chrome.tabs.onUpdated.addListener(debouncedRefresh);
-    chrome.tabs.onMoved.addListener(debouncedRefresh);
-    chrome.tabs.onAttached.addListener(debouncedRefresh);
-    chrome.tabs.onDetached.addListener(debouncedRefresh);
-  }
-
-  // Tab group events
-  if (chrome.tabGroups) {
-    chrome.tabGroups.onCreated.addListener(debouncedRefresh);
-    chrome.tabGroups.onRemoved.addListener(debouncedRefresh);
-    chrome.tabGroups.onUpdated.addListener(debouncedRefresh);
-  }
-
-  // Window events
-  if (chrome.windows) {
-    chrome.windows.onCreated.addListener(debouncedRefresh);
-    chrome.windows.onRemoved.addListener(debouncedRefresh);
-  }
-
-  // Mark that listeners were registered (for testing)
-  window._chromeListenersRegistered = true;
-}
-
-// Initialize on DOM ready
-document.addEventListener('DOMContentLoaded', async () => {
-  container = document.getElementById('groups-container');
-  const helpBtn = document.getElementById('help-btn');
-  helpModal = document.getElementById('help-modal');
-  const closeModal = document.getElementById('close-modal');
-
-  // Help Modal Logic
-  if (helpBtn) helpBtn.addEventListener('click', () => helpModal.style.display = 'block');
-  if (closeModal) closeModal.addEventListener('click', () => helpModal.style.display = 'none');
-  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.style.display = 'none'; });
-
-  // Set up live update event listeners
-  setupEventListeners();
-
-  // Initial render
-  await refreshUI();
 });
 
 function createTabElement(tab, windowId, isUngrouped = false) {
   const tabEl = document.createElement('div');
   tabEl.className = isUngrouped ? 'tab-item ungrouped-tab' : 'tab-item';
-
+  
   if (tab.favIconUrl) {
     const icon = document.createElement('img');
     icon.className = 'tab-icon';
     icon.src = tab.favIconUrl;
     tabEl.appendChild(icon);
   }
-
+  
   const title = document.createElement('span');
   title.textContent = tab.title || 'New Tab';
   tabEl.appendChild(title);
-
+  
   tabEl.addEventListener('click', () => {
     chrome.windows.update(windowId, { focused: true });
     chrome.tabs.update(tab.id, { active: true });
   });
-
+  
   return tabEl;
 }
 
@@ -267,19 +168,11 @@ function buildOrderedWindowContent(win, groupsInWindow) {
  * @param {Object} group - Group object
  * @param {Array} tabs - Array of tabs in this group
  * @param {number} windowId - Window ID for click handlers
- * @param {Set} expandedGroups - Set of group titles that should be expanded
  * @returns {HTMLElement} - The group DOM element
  */
-function createGroupElement(group, tabs, windowId, expandedGroups = new Set()) {
+function createGroupElement(group, tabs, windowId) {
   const groupEl = document.createElement('div');
   groupEl.className = 'group-item';
-
-  const groupTitle = group.title || '(Untitled Group)';
-
-  // Restore expansion state
-  if (expandedGroups.has(groupTitle)) {
-    groupEl.classList.add('expanded');
-  }
 
   const groupHeader = document.createElement('div');
   groupHeader.className = 'group-header';
@@ -293,7 +186,7 @@ function createGroupElement(group, tabs, windowId, expandedGroups = new Set()) {
   gDot.style.backgroundColor = mapColor(group.color);
 
   const gTitle = document.createElement('span');
-  gTitle.textContent = groupTitle;
+  gTitle.textContent = group.title || '(Untitled Group)';
 
   groupHeader.appendChild(gExpandIcon);
   groupHeader.appendChild(gDot);
