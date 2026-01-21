@@ -72,8 +72,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Unit Tests (Jest)
-        run: npm test
+      - name: Run Unit Tests with Coverage (Jest)
+        run: npm test -- --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
 
   e2e-tests:
     name: E2E Tests

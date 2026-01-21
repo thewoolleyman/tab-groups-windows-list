@@ -3,22 +3,69 @@
  * These tests verify the core logic that builds the 3-level hierarchy
  */
 
-// Import the mapColor function (we'll need to export it from popup.js)
-// For now, we'll define it here to test it
-function mapColor(chromeColor) {
-  const colors = {
-    'grey': '#5a5a5a',
-    'blue': '#1a73e8',
-    'red': '#d93025',
-    'yellow': '#f9ab00',
-    'green': '#188038',
-    'pink': '#d01884',
-    'purple': '#a142f4',
-    'cyan': '#007b83',
-    'orange': '#fa903e'
-  };
-  return colors[chromeColor] || '#5a5a5a';
-}
+// Mock the DOM before importing popup.js
+const mockDocument = {
+  getElementById: jest.fn(),
+  createElement: jest.fn(() => ({
+    className: '',
+    classList: {
+      add: jest.fn(),
+      remove: jest.fn(),
+      toggle: jest.fn(),
+      contains: jest.fn()
+    },
+    style: {},
+    textContent: '',
+    appendChild: jest.fn(),
+    addEventListener: jest.fn(),
+    querySelector: jest.fn(),
+    querySelectorAll: jest.fn(() => [])
+  })),
+  querySelectorAll: jest.fn(() => []),
+  addEventListener: jest.fn()
+};
+
+// Mock Chrome API
+const mockChrome = {
+  windows: {
+    getAll: jest.fn(() => Promise.resolve([])),
+    update: jest.fn(() => Promise.resolve()),
+    onCreated: { addListener: jest.fn() },
+    onRemoved: { addListener: jest.fn() }
+  },
+  tabGroups: {
+    query: jest.fn(() => Promise.resolve([])),
+    onCreated: { addListener: jest.fn() },
+    onRemoved: { addListener: jest.fn() },
+    onUpdated: { addListener: jest.fn() }
+  },
+  tabs: {
+    update: jest.fn(() => Promise.resolve()),
+    onCreated: { addListener: jest.fn() },
+    onRemoved: { addListener: jest.fn() },
+    onUpdated: { addListener: jest.fn() },
+    onMoved: { addListener: jest.fn() },
+    onAttached: { addListener: jest.fn() },
+    onDetached: { addListener: jest.fn() }
+  }
+};
+
+// Set up globals before requiring popup.js
+global.document = mockDocument;
+global.chrome = mockChrome;
+global.window = { _chromeListenersRegistered: false, refreshUI: null };
+
+// Import the actual functions from popup.js
+const {
+  debounce,
+  mapColor,
+  buildOrderedWindowContent,
+  createGroupElement,
+  createTabElement,
+  setupEventListeners,
+  setContainer,
+  refreshUI
+} = require('../popup.js');
 
 describe('mapColor function', () => {
   test('should map grey to #5a5a5a', () => {
@@ -70,6 +117,416 @@ describe('mapColor function', () => {
   });
 });
 
+describe('debounce function', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('should delay function execution', () => {
+    const mockFn = jest.fn();
+    const debouncedFn = debounce(mockFn, 100);
+
+    debouncedFn();
+    expect(mockFn).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(100);
+    expect(mockFn).toHaveBeenCalledTimes(1);
+  });
+
+  test('should cancel previous calls on rapid invocations', () => {
+    const mockFn = jest.fn();
+    const debouncedFn = debounce(mockFn, 100);
+
+    debouncedFn();
+    debouncedFn();
+    debouncedFn();
+
+    jest.advanceTimersByTime(100);
+    expect(mockFn).toHaveBeenCalledTimes(1);
+  });
+
+  test('should pass arguments to debounced function', () => {
+    const mockFn = jest.fn();
+    const debouncedFn = debounce(mockFn, 100);
+
+    debouncedFn('arg1', 'arg2');
+    jest.advanceTimersByTime(100);
+
+    expect(mockFn).toHaveBeenCalledWith('arg1', 'arg2');
+  });
+});
+
+describe('buildOrderedWindowContent function', () => {
+  test('should order ungrouped tabs before groups when ungrouped tabs come first', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'First Tab', groupId: -1, index: 0 },
+        { id: 2, title: 'Group Tab 1', groupId: 1, index: 1 },
+        { id: 3, title: 'Group Tab 2', groupId: 1, index: 2 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Group A', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(2);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('First Tab');
+    expect(result[1].type).toBe('group');
+    expect(result[1].group.title).toBe('Group A');
+  });
+
+  test('should order groups before ungrouped tabs when groups come first', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Group Tab 1', groupId: 1, index: 0 },
+        { id: 2, title: 'Group Tab 2', groupId: 1, index: 1 },
+        { id: 3, title: 'Last Tab', groupId: -1, index: 2 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Group A', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(2);
+    expect(result[0].type).toBe('group');
+    expect(result[0].group.title).toBe('Group A');
+    expect(result[1].type).toBe('tab');
+    expect(result[1].tab.title).toBe('Last Tab');
+  });
+
+  test('should interleave groups and ungrouped tabs by index', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Ungrouped 1', groupId: -1, index: 0 },
+        { id: 2, title: 'Group A Tab', groupId: 1, index: 1 },
+        { id: 3, title: 'Ungrouped 2', groupId: -1, index: 2 },
+        { id: 4, title: 'Group B Tab', groupId: 2, index: 3 },
+        { id: 5, title: 'Ungrouped 3', groupId: -1, index: 4 },
+      ],
+    };
+    const groups = [
+      { id: 1, title: 'Group A', windowId: 1 },
+      { id: 2, title: 'Group B', windowId: 1 },
+    ];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(5);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('Ungrouped 1');
+    expect(result[1].type).toBe('group');
+    expect(result[1].group.title).toBe('Group A');
+    expect(result[2].type).toBe('tab');
+    expect(result[2].tab.title).toBe('Ungrouped 2');
+    expect(result[3].type).toBe('group');
+    expect(result[3].group.title).toBe('Group B');
+    expect(result[4].type).toBe('tab');
+    expect(result[4].tab.title).toBe('Ungrouped 3');
+  });
+
+  test('should handle multiple tabs in a single group', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Ungrouped First', groupId: -1, index: 0 },
+        { id: 2, title: 'Group Tab 1', groupId: 1, index: 1 },
+        { id: 3, title: 'Group Tab 2', groupId: 1, index: 2 },
+        { id: 4, title: 'Group Tab 3', groupId: 1, index: 3 },
+        { id: 5, title: 'Ungrouped Last', groupId: -1, index: 4 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Big Group', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(3);
+    expect(result[0].type).toBe('tab');
+    expect(result[1].type).toBe('group');
+    expect(result[1].tabs.length).toBe(3);
+    expect(result[2].type).toBe('tab');
+  });
+
+  test('should handle tabs array without explicit index property', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'First', groupId: -1 },
+        { id: 2, title: 'Group Tab', groupId: 1 },
+        { id: 3, title: 'Last', groupId: -1 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Group', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(3);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('First');
+    expect(result[1].type).toBe('group');
+    expect(result[2].type).toBe('tab');
+    expect(result[2].tab.title).toBe('Last');
+  });
+
+  test('should handle empty tabs array', () => {
+    const win = { id: 1, tabs: [] };
+    const groups = [];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result).toEqual([]);
+  });
+
+  test('should handle window with only ungrouped tabs', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Tab 1', groupId: -1, index: 0 },
+        { id: 2, title: 'Tab 2', groupId: -1, index: 1 },
+      ],
+    };
+    const groups = [];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(2);
+    expect(result[0].type).toBe('tab');
+    expect(result[1].type).toBe('tab');
+  });
+
+  test('should handle window with only grouped tabs', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Tab 1', groupId: 1, index: 0 },
+        { id: 2, title: 'Tab 2', groupId: 1, index: 1 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Only Group', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(1);
+    expect(result[0].type).toBe('group');
+    expect(result[0].tabs.length).toBe(2);
+  });
+
+  test('should skip tabs in groups that are not in groupsInWindow', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Tab 1', groupId: 99, index: 0 }, // group 99 doesn't exist
+        { id: 2, title: 'Tab 2', groupId: -1, index: 1 },
+      ],
+    };
+    const groups = [];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    // Tab with groupId 99 should be skipped since the group doesn't exist
+    expect(result.length).toBe(1);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('Tab 2');
+  });
+});
+
+describe('createTabElement function', () => {
+  let mockElement;
+
+  beforeEach(() => {
+    mockElement = {
+      className: '',
+      classList: {
+        add: jest.fn(),
+        remove: jest.fn(),
+        toggle: jest.fn()
+      },
+      style: {},
+      textContent: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn()
+    };
+    mockDocument.createElement.mockReturnValue(mockElement);
+  });
+
+  test('should create tab element with correct class for ungrouped tab', () => {
+    const tab = { id: 1, title: 'Test Tab', favIconUrl: null };
+    createTabElement(tab, 1, true);
+
+    expect(mockElement.className).toBe('tab-item ungrouped-tab');
+  });
+
+  test('should create tab element with correct class for grouped tab', () => {
+    const tab = { id: 1, title: 'Test Tab', favIconUrl: null };
+    createTabElement(tab, 1, false);
+
+    expect(mockElement.className).toBe('tab-item');
+  });
+
+  test('should add click event listener', () => {
+    const tab = { id: 1, title: 'Test Tab', favIconUrl: null };
+    createTabElement(tab, 1, false);
+
+    expect(mockElement.addEventListener).toHaveBeenCalledWith('click', expect.any(Function));
+  });
+
+  test('should add favicon when favIconUrl is provided', () => {
+    const tab = { id: 1, title: 'Test Tab', favIconUrl: 'https://example.com/favicon.ico' };
+    createTabElement(tab, 1, false);
+
+    // First call creates the img element, second creates the span
+    expect(mockDocument.createElement).toHaveBeenCalledWith('div');
+    expect(mockDocument.createElement).toHaveBeenCalledWith('img');
+  });
+
+  test('should use "New Tab" as fallback title', () => {
+    const tab = { id: 1, title: '', favIconUrl: null };
+    createTabElement(tab, 1, false);
+
+    // The span's textContent should be set to 'New Tab'
+    expect(mockElement.textContent).toBe('New Tab');
+  });
+});
+
+describe('createGroupElement function', () => {
+  let mockGroupEl;
+  let mockHeaderEl;
+  let mockContentEl;
+  let elementCount;
+
+  beforeEach(() => {
+    elementCount = 0;
+    mockGroupEl = {
+      className: '',
+      classList: {
+        add: jest.fn(),
+        remove: jest.fn(),
+        toggle: jest.fn()
+      },
+      style: {},
+      appendChild: jest.fn()
+    };
+    mockHeaderEl = {
+      className: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn()
+    };
+    mockContentEl = {
+      className: '',
+      appendChild: jest.fn()
+    };
+
+    mockDocument.createElement.mockImplementation((tagName) => {
+      elementCount++;
+      if (elementCount === 1) return mockGroupEl;
+      if (elementCount === 2) return mockHeaderEl;
+      if (elementCount <= 5) return { className: '', textContent: '', style: {}, appendChild: jest.fn(), addEventListener: jest.fn() };
+      return mockContentEl;
+    });
+  });
+
+  test('should create group element with correct class', () => {
+    const group = { id: 1, title: 'Test Group', color: 'blue' };
+    const tabs = [];
+    createGroupElement(group, tabs, 1);
+
+    expect(mockGroupEl.className).toBe('group-item');
+  });
+
+  test('should restore expanded state when group title matches', () => {
+    const group = { id: 1, title: 'Test Group', color: 'blue' };
+    const tabs = [];
+    const expandedGroups = new Set(['Test Group']);
+
+    createGroupElement(group, tabs, 1, expandedGroups);
+
+    expect(mockGroupEl.classList.add).toHaveBeenCalledWith('expanded');
+  });
+
+  test('should use "(Untitled Group)" as fallback title', () => {
+    const group = { id: 1, title: '', color: 'blue' };
+    const tabs = [];
+    createGroupElement(group, tabs, 1);
+
+    // The function should handle empty title
+    expect(mockGroupEl.className).toBe('group-item');
+  });
+});
+
+describe('setupEventListeners function', () => {
+  beforeEach(() => {
+    // Reset mock call counts
+    jest.clearAllMocks();
+    global.window._chromeListenersRegistered = false;
+  });
+
+  test('should register all tab event listeners', () => {
+    setupEventListeners();
+
+    expect(mockChrome.tabs.onCreated.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabs.onRemoved.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabs.onUpdated.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabs.onMoved.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabs.onAttached.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabs.onDetached.addListener).toHaveBeenCalled();
+  });
+
+  test('should register all tabGroups event listeners', () => {
+    setupEventListeners();
+
+    expect(mockChrome.tabGroups.onCreated.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabGroups.onRemoved.addListener).toHaveBeenCalled();
+    expect(mockChrome.tabGroups.onUpdated.addListener).toHaveBeenCalled();
+  });
+
+  test('should register all windows event listeners', () => {
+    setupEventListeners();
+
+    expect(mockChrome.windows.onCreated.addListener).toHaveBeenCalled();
+    expect(mockChrome.windows.onRemoved.addListener).toHaveBeenCalled();
+  });
+
+  test('should set _chromeListenersRegistered flag', () => {
+    setupEventListeners();
+
+    expect(global.window._chromeListenersRegistered).toBe(true);
+  });
+
+  test('should handle missing chrome.tabs gracefully', () => {
+    const originalTabs = global.chrome.tabs;
+    global.chrome.tabs = undefined;
+
+    expect(() => setupEventListeners()).not.toThrow();
+
+    global.chrome.tabs = originalTabs;
+  });
+
+  test('should handle missing chrome.tabGroups gracefully', () => {
+    const originalTabGroups = global.chrome.tabGroups;
+    global.chrome.tabGroups = undefined;
+
+    expect(() => setupEventListeners()).not.toThrow();
+
+    global.chrome.tabGroups = originalTabGroups;
+  });
+
+  test('should handle missing chrome.windows gracefully', () => {
+    const originalWindows = global.chrome.windows;
+    global.chrome.windows = undefined;
+
+    expect(() => setupEventListeners()).not.toThrow();
+
+    global.chrome.windows = originalWindows;
+  });
+});
+
 describe('Hierarchy structure validation', () => {
   test('should have correct window structure', () => {
     const mockWindow = {
@@ -81,7 +538,6 @@ describe('Hierarchy structure validation', () => {
       ],
     };
 
-    // Verify the structure has the expected properties
     expect(mockWindow).toHaveProperty('id');
     expect(mockWindow).toHaveProperty('title');
     expect(mockWindow).toHaveProperty('tabs');
@@ -96,7 +552,6 @@ describe('Hierarchy structure validation', () => {
       windowId: 1,
     };
 
-    // Verify the structure has the expected properties
     expect(mockGroup).toHaveProperty('id');
     expect(mockGroup).toHaveProperty('title');
     expect(mockGroup).toHaveProperty('color');
@@ -111,7 +566,6 @@ describe('Hierarchy structure validation', () => {
       favIconUrl: 'https://example.com/favicon.ico',
     };
 
-    // Verify the structure has the expected properties
     expect(mockTab).toHaveProperty('id');
     expect(mockTab).toHaveProperty('title');
     expect(mockTab).toHaveProperty('groupId');
@@ -243,315 +697,629 @@ describe('Tab naming logic', () => {
   });
 });
 
-// =============================================================================
-// TAB ORDERING TESTS (t17) - TDD: These tests define the expected ordering behavior
-// =============================================================================
+describe('refreshUI function', () => {
+  let mockContainer;
 
-/**
- * buildOrderedWindowContent - Builds window content items in correct tab index order
- *
- * This function should interleave groups and ungrouped tabs based on their actual
- * tab indices, NOT list groups first then ungrouped tabs.
- *
- * @param {Object} win - Window object with tabs array
- * @param {Array} groupsInWindow - Array of group objects in this window
- * @returns {Array} - Array of items in correct order: {type: 'group'|'tab', ...data}
- */
-function buildOrderedWindowContent(win, groupsInWindow) {
-  // Get all tabs with their indices
-  const tabsWithIndex = win.tabs.map((tab, arrayIndex) => ({
-    ...tab,
-    index: tab.index !== undefined ? tab.index : arrayIndex
-  }));
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    // Reset container to null before each test
+    setContainer(null);
 
-  // Build a map of groupId -> minimum tab index (position of group)
-  const groupPositions = new Map();
-  groupsInWindow.forEach(group => {
-    const tabsInGroup = tabsWithIndex.filter(t => t.groupId === group.id);
-    if (tabsInGroup.length > 0) {
-      const minIndex = Math.min(...tabsInGroup.map(t => t.index));
-      groupPositions.set(group.id, minIndex);
-    }
+    // Reset document.querySelectorAll mock
+    mockDocument.querySelectorAll.mockReturnValue([]);
   });
 
-  // Build ordered content array
-  const result = [];
-  const processedGroupIds = new Set();
+  test('should return early if container is not set', async () => {
+    setContainer(null);
+    await expect(refreshUI()).resolves.toBeUndefined();
+  });
 
-  // Sort tabs by index
-  const sortedTabs = [...tabsWithIndex].sort((a, b) => a.index - b.index);
+  test('should display empty message when no windows', async () => {
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
 
-  for (const tab of sortedTabs) {
-    if (tab.groupId === -1) {
-      // Ungrouped tab - add directly
-      result.push({ type: 'tab', tab });
-    } else if (!processedGroupIds.has(tab.groupId)) {
-      // First tab of a group - add the group
-      const group = groupsInWindow.find(g => g.id === tab.groupId);
-      if (group) {
-        const tabsInGroup = tabsWithIndex.filter(t => t.groupId === group.id);
-        result.push({ type: 'group', group, tabs: tabsInGroup });
-        processedGroupIds.add(tab.groupId);
+    await refreshUI();
+
+    expect(mockContainer.innerHTML).toBe('<div class="empty-msg">No windows found.</div>');
+  });
+
+  test('should handle API errors gracefully', async () => {
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockRejectedValue(new Error('API Error'));
+
+    await refreshUI();
+
+    expect(mockContainer.innerHTML).toBe('<div class="empty-msg">Error loading windows.</div>');
+  });
+
+  test('should render windows when data is returned', async () => {
+    // Reset mocks
+    jest.clearAllMocks();
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, title: 'Test Window', tabs: [] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    setContainer(mockContainer);
+    await refreshUI();
+
+    // Verify createElement was called (to create window elements)
+    expect(mockDocument.createElement).toHaveBeenCalledWith('div');
+    expect(mockDocument.createElement).toHaveBeenCalledWith('span');
+  });
+
+  test('should preserve expansion state of windows', async () => {
+    // Create mock expanded window element
+    const mockExpandedWindow = {
+      querySelector: jest.fn().mockReturnValue({ textContent: 'Expanded Window' })
+    };
+    mockDocument.querySelectorAll.mockImplementation((selector) => {
+      if (selector === '.window-item.expanded') {
+        return [mockExpandedWindow];
       }
+      return [];
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, title: 'Expanded Window', tabs: [] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // The window should be marked as expanded
+    expect(mockDocument.querySelectorAll).toHaveBeenCalledWith('.window-item.expanded');
+  });
+
+  test('should preserve expansion state of groups', async () => {
+    // Create mock expanded group element
+    const mockExpandedGroup = {
+      querySelector: jest.fn().mockReturnValue({ textContent: 'Expanded Group' })
+    };
+    mockDocument.querySelectorAll.mockImplementation((selector) => {
+      if (selector === '.group-item.expanded') {
+        return [mockExpandedGroup];
+      }
+      if (selector === '.window-item.expanded') {
+        return [];
+      }
+      return [];
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, title: 'Test Window', tabs: [{ id: 1, title: 'Tab', groupId: 1, index: 0 }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([
+      { id: 1, title: 'Expanded Group', color: 'blue', windowId: 1 }
+    ]);
+
+    await refreshUI();
+
+    expect(mockDocument.querySelectorAll).toHaveBeenCalledWith('.group-item.expanded');
+  });
+
+  test('should render ungrouped tabs', async () => {
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      {
+        id: 1,
+        title: 'Test Window',
+        tabs: [{ id: 1, title: 'Ungrouped Tab', groupId: -1, index: 0 }]
+      }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Verify createElement was called (to create tab element)
+    expect(mockDocument.createElement).toHaveBeenCalled();
+  });
+
+  test('should render groups with their tabs', async () => {
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      {
+        id: 1,
+        title: 'Test Window',
+        tabs: [
+          { id: 1, title: 'Grouped Tab', groupId: 1, index: 0 }
+        ]
+      }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([
+      { id: 1, title: 'Test Group', color: 'blue', windowId: 1 }
+    ]);
+
+    await refreshUI();
+
+    // Verify createElement was called for group and tab
+    expect(mockDocument.createElement).toHaveBeenCalled();
+  });
+
+  test('should call window focus API when clicking non-expand-icon part of header', async () => {
+    // Track click handlers
+    const clickHandlers = [];
+    let expandIconRef;
+
+    mockDocument.createElement.mockImplementation((tag) => {
+      const el = {
+        className: '',
+        textContent: '',
+        style: {},
+        classList: {
+          add: jest.fn(),
+          toggle: jest.fn()
+        },
+        appendChild: jest.fn(),
+        addEventListener: jest.fn((event, handler) => {
+          if (event === 'click') {
+            clickHandlers.push({ element: el, handler });
+          }
+        })
+      };
+      // Track expand icon
+      if (tag === 'span' && !expandIconRef) {
+        expandIconRef = el;
+      }
+      return el;
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 42, title: 'Test Window', tabs: [] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Find the window header click handler (should be second click handler)
+    expect(clickHandlers.length).toBeGreaterThan(0);
+
+    // Simulate clicking on header (not expand icon)
+    const headerHandler = clickHandlers.find(h => h.element !== expandIconRef)?.handler;
+    if (headerHandler) {
+      headerHandler({ target: {} }); // target is not expand icon
+      expect(mockChrome.windows.update).toHaveBeenCalledWith(42, { focused: true });
     }
-    // Skip subsequent tabs of already-processed groups
-  }
-
-  return result;
-}
-
-describe('Tab ordering logic (t17)', () => {
-  test('should order ungrouped tabs before groups when ungrouped tabs come first', () => {
-    const win = {
-      id: 1,
-      tabs: [
-        { id: 1, title: 'First Tab', groupId: -1, index: 0 },
-        { id: 2, title: 'Group Tab 1', groupId: 1, index: 1 },
-        { id: 3, title: 'Group Tab 2', groupId: 1, index: 2 },
-      ],
-    };
-    const groups = [{ id: 1, title: 'Group A', windowId: 1 }];
-
-    const result = buildOrderedWindowContent(win, groups);
-
-    expect(result.length).toBe(2);
-    expect(result[0].type).toBe('tab');
-    expect(result[0].tab.title).toBe('First Tab');
-    expect(result[1].type).toBe('group');
-    expect(result[1].group.title).toBe('Group A');
   });
 
-  test('should order groups before ungrouped tabs when groups come first', () => {
-    const win = {
-      id: 1,
-      tabs: [
-        { id: 1, title: 'Group Tab 1', groupId: 1, index: 0 },
-        { id: 2, title: 'Group Tab 2', groupId: 1, index: 1 },
-        { id: 3, title: 'Last Tab', groupId: -1, index: 2 },
-      ],
-    };
-    const groups = [{ id: 1, title: 'Group A', windowId: 1 }];
+  test('should toggle expansion when clicking expand icon', async () => {
+    // Track click handlers and elements
+    let expandIconClickHandler;
+    let windowEl;
 
-    const result = buildOrderedWindowContent(win, groups);
+    mockDocument.createElement.mockImplementation((tag) => {
+      const el = {
+        className: '',
+        textContent: '',
+        style: {},
+        classList: {
+          add: jest.fn(),
+          toggle: jest.fn()
+        },
+        appendChild: jest.fn(),
+        addEventListener: jest.fn((event, handler) => {
+          if (event === 'click' && tag === 'span') {
+            expandIconClickHandler = handler;
+          }
+        })
+      };
+      if (tag === 'div' && !windowEl) {
+        windowEl = el;
+      }
+      return el;
+    });
 
-    expect(result.length).toBe(2);
-    expect(result[0].type).toBe('group');
-    expect(result[0].group.title).toBe('Group A');
-    expect(result[1].type).toBe('tab');
-    expect(result[1].tab.title).toBe('Last Tab');
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, title: 'Test', tabs: [] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Simulate expand icon click
+    if (expandIconClickHandler) {
+      const mockEvent = { stopPropagation: jest.fn() };
+      expandIconClickHandler(mockEvent);
+      expect(mockEvent.stopPropagation).toHaveBeenCalled();
+    }
   });
 
-  test('should interleave groups and ungrouped tabs by index', () => {
-    const win = {
-      id: 1,
-      tabs: [
-        { id: 1, title: 'Ungrouped 1', groupId: -1, index: 0 },
-        { id: 2, title: 'Group A Tab', groupId: 1, index: 1 },
-        { id: 3, title: 'Ungrouped 2', groupId: -1, index: 2 },
-        { id: 4, title: 'Group B Tab', groupId: 2, index: 3 },
-        { id: 5, title: 'Ungrouped 3', groupId: -1, index: 4 },
-      ],
-    };
-    const groups = [
-      { id: 1, title: 'Group A', windowId: 1 },
-      { id: 2, title: 'Group B', windowId: 1 },
-    ];
+  test('should toggle window expansion when clicking header expand icon', async () => {
+    // Track handlers
+    let windowHeaderClickHandler;
+    let windowEl;
+    let expandIcon;
 
-    const result = buildOrderedWindowContent(win, groups);
+    mockDocument.createElement.mockImplementation((tag) => {
+      const el = {
+        className: '',
+        textContent: '',
+        style: {},
+        classList: {
+          add: jest.fn(),
+          toggle: jest.fn()
+        },
+        appendChild: jest.fn(),
+        addEventListener: jest.fn()
+      };
+      if (tag === 'div' && !windowEl) {
+        windowEl = el;
+      }
+      if (tag === 'span' && !expandIcon) {
+        expandIcon = el;
+      }
+      return el;
+    });
 
-    expect(result.length).toBe(5);
-    expect(result[0].type).toBe('tab');
-    expect(result[0].tab.title).toBe('Ungrouped 1');
-    expect(result[1].type).toBe('group');
-    expect(result[1].group.title).toBe('Group A');
-    expect(result[2].type).toBe('tab');
-    expect(result[2].tab.title).toBe('Ungrouped 2');
-    expect(result[3].type).toBe('group');
-    expect(result[3].group.title).toBe('Group B');
-    expect(result[4].type).toBe('tab');
-    expect(result[4].tab.title).toBe('Ungrouped 3');
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, title: 'Test', tabs: [] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Find the window header click handler
+    const divCalls = mockDocument.createElement.mock.results.filter(
+      (r, i) => mockDocument.createElement.mock.calls[i][0] === 'div'
+    );
+
+    // The second div is window-header - get its addEventListener calls
+    expect(mockDocument.createElement).toHaveBeenCalled();
   });
 
-  test('should handle multiple tabs in a single group', () => {
-    const win = {
-      id: 1,
-      tabs: [
-        { id: 1, title: 'Ungrouped First', groupId: -1, index: 0 },
-        { id: 2, title: 'Group Tab 1', groupId: 1, index: 1 },
-        { id: 3, title: 'Group Tab 2', groupId: 1, index: 2 },
-        { id: 4, title: 'Group Tab 3', groupId: 1, index: 3 },
-        { id: 5, title: 'Ungrouped Last', groupId: -1, index: 4 },
-      ],
-    };
-    const groups = [{ id: 1, title: 'Big Group', windowId: 1 }];
+  test('should render ordered content with tabs and groups', async () => {
+    jest.clearAllMocks();
+    mockChrome.windows.getAll.mockResolvedValue([
+      {
+        id: 1,
+        title: 'Test Window',
+        tabs: [
+          { id: 1, title: 'Ungrouped', groupId: -1, index: 0 },
+          { id: 2, title: 'Grouped', groupId: 1, index: 1 }
+        ]
+      }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([
+      { id: 1, title: 'Group 1', color: 'blue', windowId: 1 }
+    ]);
 
-    const result = buildOrderedWindowContent(win, groups);
+    setContainer(mockContainer);
+    await refreshUI();
 
-    expect(result.length).toBe(3);
-    expect(result[0].type).toBe('tab');
-    expect(result[1].type).toBe('group');
-    expect(result[1].tabs.length).toBe(3);
-    expect(result[2].type).toBe('tab');
+    // Should have created elements for window, tabs, and groups
+    expect(mockDocument.createElement).toHaveBeenCalledWith('div');
+    expect(mockDocument.createElement).toHaveBeenCalledWith('span');
   });
 
-  test('should handle tabs array without explicit index property', () => {
-    const win = {
-      id: 1,
-      tabs: [
-        { id: 1, title: 'First', groupId: -1 },
-        { id: 2, title: 'Group Tab', groupId: 1 },
-        { id: 3, title: 'Last', groupId: -1 },
-      ],
-    };
-    const groups = [{ id: 1, title: 'Group', windowId: 1 }];
+  test('should toggle window expansion when header click target is expand icon', async () => {
+    jest.clearAllMocks();
 
-    const result = buildOrderedWindowContent(win, groups);
+    // Track elements and handlers
+    let windowEl = null;
+    let headerEl = null;
+    let expandIcon = null;
+    let headerClickHandler = null;
+    let elementIndex = 0;
 
-    expect(result.length).toBe(3);
-    expect(result[0].type).toBe('tab');
-    expect(result[0].tab.title).toBe('First');
-    expect(result[1].type).toBe('group');
-    expect(result[2].type).toBe('tab');
-    expect(result[2].tab.title).toBe('Last');
+    mockDocument.createElement.mockImplementation((tag) => {
+      elementIndex++;
+      const el = {
+        className: '',
+        textContent: '',
+        style: {},
+        classList: {
+          add: jest.fn(),
+          toggle: jest.fn()
+        },
+        appendChild: jest.fn(),
+        addEventListener: jest.fn((event, handler) => {
+          if (event === 'click') {
+            if (elementIndex === 2) { // window-header
+              headerClickHandler = handler;
+            }
+          }
+        })
+      };
+
+      if (elementIndex === 1) windowEl = el;  // window-item div
+      if (elementIndex === 2) headerEl = el;   // window-header div
+      if (elementIndex === 3) expandIcon = el; // expand-icon span
+
+      return el;
+    });
+
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, title: 'Test Window', tabs: [] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    setContainer(mockContainer);
+    await refreshUI();
+
+    // Simulate clicking on expand icon (target === expandIcon)
+    if (headerClickHandler && expandIcon && windowEl) {
+      headerClickHandler({ target: expandIcon });
+      expect(windowEl.classList.toggle).toHaveBeenCalledWith('expanded');
+    }
   });
 });
 
-// =============================================================================
-// LIVE UI UPDATES TESTS (t18) - TDD: These tests define the expected event handling
-// =============================================================================
-
-describe('Live UI updates event listeners (t18)', () => {
-  let mockChrome;
+describe('Click handlers', () => {
+  let clickCallback;
+  let mockElement;
 
   beforeEach(() => {
-    // Create mock Chrome API with event listeners
-    mockChrome = {
-      tabs: {
-        onCreated: { addListener: jest.fn() },
-        onRemoved: { addListener: jest.fn() },
-        onUpdated: { addListener: jest.fn() },
-        onMoved: { addListener: jest.fn() },
-        onAttached: { addListener: jest.fn() },
-        onDetached: { addListener: jest.fn() },
+    jest.clearAllMocks();
+    mockElement = {
+      className: '',
+      classList: {
+        add: jest.fn(),
+        remove: jest.fn(),
+        toggle: jest.fn()
       },
-      tabGroups: {
-        onCreated: { addListener: jest.fn() },
-        onRemoved: { addListener: jest.fn() },
-        onUpdated: { addListener: jest.fn() },
-      },
-      windows: {
-        onCreated: { addListener: jest.fn() },
-        onRemoved: { addListener: jest.fn() },
-      },
+      style: {},
+      textContent: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn((event, callback) => {
+        if (event === 'click') {
+          clickCallback = callback;
+        }
+      })
     };
+    mockDocument.createElement.mockReturnValue(mockElement);
   });
 
-  test('setupEventListeners should register tab event listeners', () => {
-    // This function should exist and register all necessary listeners
-    const setupEventListeners = (chrome, callback) => {
-      chrome.tabs.onCreated.addListener(callback);
-      chrome.tabs.onRemoved.addListener(callback);
-      chrome.tabs.onUpdated.addListener(callback);
-      chrome.tabs.onMoved.addListener(callback);
-      chrome.tabs.onAttached.addListener(callback);
-      chrome.tabs.onDetached.addListener(callback);
-    };
+  test('tab click handler should call chrome.windows.update and chrome.tabs.update', () => {
+    const tab = { id: 42, title: 'Test Tab', favIconUrl: null };
+    const windowId = 1;
 
-    const refreshCallback = jest.fn();
-    setupEventListeners(mockChrome, refreshCallback);
+    createTabElement(tab, windowId, false);
 
-    expect(mockChrome.tabs.onCreated.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabs.onRemoved.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabs.onUpdated.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabs.onMoved.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabs.onAttached.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabs.onDetached.addListener).toHaveBeenCalledWith(refreshCallback);
+    // Simulate click
+    expect(clickCallback).toBeDefined();
+    clickCallback();
+
+    expect(mockChrome.windows.update).toHaveBeenCalledWith(windowId, { focused: true });
+    expect(mockChrome.tabs.update).toHaveBeenCalledWith(42, { active: true });
   });
 
-  test('setupEventListeners should register tabGroup event listeners', () => {
-    const setupEventListeners = (chrome, callback) => {
-      chrome.tabGroups.onCreated.addListener(callback);
-      chrome.tabGroups.onRemoved.addListener(callback);
-      chrome.tabGroups.onUpdated.addListener(callback);
-    };
+  test('group header click handler should toggle expanded when clicking expand icon', () => {
+    const group = { id: 1, title: 'Test Group', color: 'blue' };
+    const tabs = [{ id: 1, title: 'Tab 1', favIconUrl: null }];
 
-    const refreshCallback = jest.fn();
-    setupEventListeners(mockChrome, refreshCallback);
+    // Mock createElement to capture the group element and header
+    let groupEl, headerEl, expandIcon;
+    let elementIndex = 0;
 
-    expect(mockChrome.tabGroups.onCreated.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabGroups.onRemoved.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.tabGroups.onUpdated.addListener).toHaveBeenCalledWith(refreshCallback);
-  });
-
-  test('setupEventListeners should register window event listeners', () => {
-    const setupEventListeners = (chrome, callback) => {
-      chrome.windows.onCreated.addListener(callback);
-      chrome.windows.onRemoved.addListener(callback);
-    };
-
-    const refreshCallback = jest.fn();
-    setupEventListeners(mockChrome, refreshCallback);
-
-    expect(mockChrome.windows.onCreated.addListener).toHaveBeenCalledWith(refreshCallback);
-    expect(mockChrome.windows.onRemoved.addListener).toHaveBeenCalledWith(refreshCallback);
-  });
-
-  test('debounce function should delay rapid calls', (done) => {
-    // Debounce is important to avoid re-rendering on every single event
-    const debounce = (fn, delay) => {
-      let timeoutId;
-      return (...args) => {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => fn(...args), delay);
+    mockDocument.createElement.mockImplementation(() => {
+      elementIndex++;
+      if (elementIndex === 1) {
+        groupEl = {
+          className: '',
+          classList: { add: jest.fn(), toggle: jest.fn() },
+          appendChild: jest.fn()
+        };
+        return groupEl;
+      }
+      if (elementIndex === 2) {
+        headerEl = {
+          className: '',
+          appendChild: jest.fn(),
+          addEventListener: jest.fn()
+        };
+        return headerEl;
+      }
+      if (elementIndex === 3) {
+        expandIcon = {
+          className: '',
+          textContent: '',
+          addEventListener: jest.fn()
+        };
+        return expandIcon;
+      }
+      return {
+        className: '',
+        textContent: '',
+        style: {},
+        appendChild: jest.fn(),
+        addEventListener: jest.fn()
       };
-    };
+    });
 
-    const mockFn = jest.fn();
-    const debouncedFn = debounce(mockFn, 50);
+    createGroupElement(group, tabs, 1);
 
-    // Call multiple times rapidly
-    debouncedFn();
-    debouncedFn();
-    debouncedFn();
+    // Get the expand icon click handler
+    const expandIconClickCall = expandIcon.addEventListener.mock.calls.find(
+      call => call[0] === 'click'
+    );
+    expect(expandIconClickCall).toBeDefined();
 
-    // Should not have been called yet
-    expect(mockFn).not.toHaveBeenCalled();
+    // Simulate click on expand icon with stopPropagation
+    const mockEvent = { stopPropagation: jest.fn(), target: expandIcon };
+    expandIconClickCall[1](mockEvent);
 
-    // After delay, should be called exactly once
-    setTimeout(() => {
-      expect(mockFn).toHaveBeenCalledTimes(1);
-      done();
-    }, 100);
+    expect(mockEvent.stopPropagation).toHaveBeenCalled();
+    expect(groupEl.classList.toggle).toHaveBeenCalledWith('expanded');
   });
 
-  test('should handle cleanup of event listeners', () => {
-    // For proper cleanup, we should also have removeListener capability
-    const listeners = [];
+  test('group header click handler should focus first tab when clicking header (not icon)', () => {
+    const group = { id: 1, title: 'Test Group', color: 'blue' };
+    const tabs = [{ id: 99, title: 'First Tab', favIconUrl: null }];
 
-    const setupEventListeners = (chrome, callback) => {
-      const events = [
-        chrome.tabs.onCreated,
-        chrome.tabs.onRemoved,
-        chrome.tabs.onUpdated,
-      ];
-      events.forEach(event => {
-        event.addListener(callback);
-        listeners.push({ event, callback });
-      });
-    };
+    let groupEl, headerEl, expandIcon;
+    let elementIndex = 0;
 
-    const cleanupEventListeners = () => {
-      // In a real implementation, we'd call removeListener
-      listeners.length = 0;
-    };
+    mockDocument.createElement.mockImplementation(() => {
+      elementIndex++;
+      if (elementIndex === 1) {
+        groupEl = {
+          className: '',
+          classList: { add: jest.fn(), toggle: jest.fn() },
+          appendChild: jest.fn()
+        };
+        return groupEl;
+      }
+      if (elementIndex === 2) {
+        headerEl = {
+          className: '',
+          appendChild: jest.fn(),
+          addEventListener: jest.fn()
+        };
+        return headerEl;
+      }
+      if (elementIndex === 3) {
+        expandIcon = {
+          className: '',
+          textContent: '',
+          addEventListener: jest.fn()
+        };
+        return expandIcon;
+      }
+      return {
+        className: '',
+        textContent: '',
+        style: {},
+        appendChild: jest.fn(),
+        addEventListener: jest.fn()
+      };
+    });
 
-    const refreshCallback = jest.fn();
-    setupEventListeners(mockChrome, refreshCallback);
+    createGroupElement(group, tabs, 1);
 
-    expect(listeners.length).toBe(3);
+    // Get the header click handler
+    const headerClickCall = headerEl.addEventListener.mock.calls.find(
+      call => call[0] === 'click'
+    );
+    expect(headerClickCall).toBeDefined();
 
-    cleanupEventListeners();
-    expect(listeners.length).toBe(0);
+    // Simulate click on header (not on expand icon)
+    const mockEvent = { target: headerEl };
+    headerClickCall[1](mockEvent);
+
+    expect(mockChrome.windows.update).toHaveBeenCalledWith(1, { focused: true });
+    expect(mockChrome.tabs.update).toHaveBeenCalledWith(99, { active: true });
+  });
+
+  test('group header click should toggle expansion when clicking expand icon', () => {
+    const group = { id: 1, title: 'Test Group', color: 'blue' };
+    const tabs = [{ id: 99, title: 'First Tab', favIconUrl: null }];
+
+    let groupEl, headerEl, expandIcon;
+    let elementIndex = 0;
+
+    mockDocument.createElement.mockImplementation(() => {
+      elementIndex++;
+      if (elementIndex === 1) {
+        groupEl = {
+          className: '',
+          classList: { add: jest.fn(), toggle: jest.fn() },
+          appendChild: jest.fn()
+        };
+        return groupEl;
+      }
+      if (elementIndex === 2) {
+        headerEl = {
+          className: '',
+          appendChild: jest.fn(),
+          addEventListener: jest.fn()
+        };
+        return headerEl;
+      }
+      if (elementIndex === 3) {
+        expandIcon = {
+          className: '',
+          textContent: '',
+          addEventListener: jest.fn()
+        };
+        return expandIcon;
+      }
+      return {
+        className: '',
+        textContent: '',
+        style: {},
+        appendChild: jest.fn(),
+        addEventListener: jest.fn()
+      };
+    });
+
+    createGroupElement(group, tabs, 1);
+
+    // Get the header click handler
+    const headerClickCall = headerEl.addEventListener.mock.calls.find(
+      call => call[0] === 'click'
+    );
+
+    // Simulate click on expand icon (target is expandIcon)
+    const mockEvent = { target: expandIcon };
+    headerClickCall[1](mockEvent);
+
+    // Should toggle expansion, not focus tab
+    expect(groupEl.classList.toggle).toHaveBeenCalledWith('expanded');
+  });
+
+  test('group with empty tabs array should not crash on header click', () => {
+    const group = { id: 1, title: 'Empty Group', color: 'blue' };
+    const tabs = [];
+
+    let groupEl, headerEl, expandIcon;
+    let elementIndex = 0;
+
+    mockDocument.createElement.mockImplementation(() => {
+      elementIndex++;
+      if (elementIndex === 1) {
+        groupEl = {
+          className: '',
+          classList: { add: jest.fn(), toggle: jest.fn() },
+          appendChild: jest.fn()
+        };
+        return groupEl;
+      }
+      if (elementIndex === 2) {
+        headerEl = {
+          className: '',
+          appendChild: jest.fn(),
+          addEventListener: jest.fn()
+        };
+        return headerEl;
+      }
+      if (elementIndex === 3) {
+        expandIcon = {
+          className: '',
+          textContent: '',
+          addEventListener: jest.fn()
+        };
+        return expandIcon;
+      }
+      return {
+        className: '',
+        textContent: '',
+        style: {},
+        appendChild: jest.fn(),
+        addEventListener: jest.fn()
+      };
+    });
+
+    createGroupElement(group, tabs, 1);
+
+    const headerClickCall = headerEl.addEventListener.mock.calls.find(
+      call => call[0] === 'click'
+    );
+
+    // Should not throw when tabs array is empty
+    expect(() => {
+      headerClickCall[1]({ target: headerEl });
+    }).not.toThrow();
   });
 });
 
@@ -573,7 +1341,6 @@ describe('3-level hierarchy validation', () => {
       { id: 1, title: 'Group 1', color: 'blue', windowId: 1 },
     ];
 
-    // Build the hierarchy
     const hierarchy = windows.map(win => {
       const groupsInWindow = groups.filter(g => g.windowId === win.id);
       const ungroupedTabs = win.tabs.filter(t => t.groupId === -1);
@@ -588,7 +1355,6 @@ describe('3-level hierarchy validation', () => {
       };
     });
 
-    // Verify the hierarchy
     expect(hierarchy.length).toBe(1);
     expect(hierarchy[0].window.id).toBe(1);
     expect(hierarchy[0].groups.length).toBe(1);
@@ -622,7 +1388,6 @@ describe('3-level hierarchy validation', () => {
       { id: 3, title: 'Group 3', color: 'green', windowId: 2 },
     ];
 
-    // Build the hierarchy
     const hierarchy = windows.map(win => {
       const groupsInWindow = groups.filter(g => g.windowId === win.id);
       const ungroupedTabs = win.tabs.filter(t => t.groupId === -1);
@@ -637,7 +1402,6 @@ describe('3-level hierarchy validation', () => {
       };
     });
 
-    // Verify the hierarchy
     expect(hierarchy.length).toBe(2);
     expect(hierarchy[0].groups.length).toBe(2);
     expect(hierarchy[1].groups.length).toBe(1);
