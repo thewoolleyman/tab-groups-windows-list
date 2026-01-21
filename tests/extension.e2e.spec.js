@@ -346,6 +346,77 @@ test.describe("BUG FIX #2: Windows with no groups show all tabs", () => {
 });
 
 // =============================================================================
+// LIVE UI UPDATES TESTS (t18) - TDD: These tests verify event listeners are set up
+// =============================================================================
+
+test.describe("LIVE UI UPDATES (t18): UI should update when tabs/windows change", () => {
+  test("should have refresh function available in popup", async ({ page }) => {
+    await setupPageWithMockData(page, richMockData);
+
+    // Check that refreshUI function exists and is callable
+    const hasRefreshUI = await page.evaluate(() => {
+      return typeof window.refreshUI === 'function';
+    });
+
+    expect(hasRefreshUI).toBe(true);
+  });
+
+  test("should have event listeners registered", async ({ page }) => {
+    await setupPageWithMockData(page, richMockData);
+
+    // Check that chrome event listeners were set up
+    const listenersSetup = await page.evaluate(() => {
+      // The mock chrome object should have listeners registered
+      return window._chromeListenersRegistered === true;
+    });
+
+    expect(listenersSetup).toBe(true);
+  });
+
+  test("refreshUI should update the display when called", async ({ page }) => {
+    // Set up initial data
+    await setupPageWithMockData(page, richMockData);
+
+    // Verify initial state - should have 2 windows
+    await expect(page.locator(".window-item")).toHaveCount(2);
+
+    // Update the mock data to simulate a change
+    await page.evaluate(() => {
+      // Simulate adding a third window to the mock
+      window._mockData = {
+        windows: [
+          ...window._mockData.windows,
+          {
+            id: 3,
+            title: "New Window",
+            tabs: [
+              { id: 100, title: "New Tab", groupId: -1, favIconUrl: null },
+            ],
+          },
+        ],
+        groups: window._mockData.groups,
+      };
+
+      // Update the mock chrome API to return new data
+      window.chrome.windows.getAll = () => Promise.resolve(window._mockData.windows);
+    });
+
+    // Call refresh
+    await page.evaluate(() => {
+      if (typeof window.refreshUI === 'function') {
+        window.refreshUI();
+      }
+    });
+
+    // Wait for refresh to complete
+    await page.waitForTimeout(500);
+
+    // Should now have 3 windows
+    await expect(page.locator(".window-item")).toHaveCount(3);
+  });
+});
+
+// =============================================================================
 // TAB ORDERING TESTS (t17) - TDD: These tests verify correct tab/group order
 // =============================================================================
 
