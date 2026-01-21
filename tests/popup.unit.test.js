@@ -243,6 +243,179 @@ describe('Tab naming logic', () => {
   });
 });
 
+// =============================================================================
+// TAB ORDERING TESTS (t17) - TDD: These tests define the expected ordering behavior
+// =============================================================================
+
+/**
+ * buildOrderedWindowContent - Builds window content items in correct tab index order
+ *
+ * This function should interleave groups and ungrouped tabs based on their actual
+ * tab indices, NOT list groups first then ungrouped tabs.
+ *
+ * @param {Object} win - Window object with tabs array
+ * @param {Array} groupsInWindow - Array of group objects in this window
+ * @returns {Array} - Array of items in correct order: {type: 'group'|'tab', ...data}
+ */
+function buildOrderedWindowContent(win, groupsInWindow) {
+  // Get all tabs with their indices
+  const tabsWithIndex = win.tabs.map((tab, arrayIndex) => ({
+    ...tab,
+    index: tab.index !== undefined ? tab.index : arrayIndex
+  }));
+
+  // Build a map of groupId -> minimum tab index (position of group)
+  const groupPositions = new Map();
+  groupsInWindow.forEach(group => {
+    const tabsInGroup = tabsWithIndex.filter(t => t.groupId === group.id);
+    if (tabsInGroup.length > 0) {
+      const minIndex = Math.min(...tabsInGroup.map(t => t.index));
+      groupPositions.set(group.id, minIndex);
+    }
+  });
+
+  // Build ordered content array
+  const result = [];
+  const processedGroupIds = new Set();
+
+  // Sort tabs by index
+  const sortedTabs = [...tabsWithIndex].sort((a, b) => a.index - b.index);
+
+  for (const tab of sortedTabs) {
+    if (tab.groupId === -1) {
+      // Ungrouped tab - add directly
+      result.push({ type: 'tab', tab });
+    } else if (!processedGroupIds.has(tab.groupId)) {
+      // First tab of a group - add the group
+      const group = groupsInWindow.find(g => g.id === tab.groupId);
+      if (group) {
+        const tabsInGroup = tabsWithIndex.filter(t => t.groupId === group.id);
+        result.push({ type: 'group', group, tabs: tabsInGroup });
+        processedGroupIds.add(tab.groupId);
+      }
+    }
+    // Skip subsequent tabs of already-processed groups
+  }
+
+  return result;
+}
+
+describe('Tab ordering logic (t17)', () => {
+  test('should order ungrouped tabs before groups when ungrouped tabs come first', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'First Tab', groupId: -1, index: 0 },
+        { id: 2, title: 'Group Tab 1', groupId: 1, index: 1 },
+        { id: 3, title: 'Group Tab 2', groupId: 1, index: 2 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Group A', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(2);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('First Tab');
+    expect(result[1].type).toBe('group');
+    expect(result[1].group.title).toBe('Group A');
+  });
+
+  test('should order groups before ungrouped tabs when groups come first', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Group Tab 1', groupId: 1, index: 0 },
+        { id: 2, title: 'Group Tab 2', groupId: 1, index: 1 },
+        { id: 3, title: 'Last Tab', groupId: -1, index: 2 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Group A', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(2);
+    expect(result[0].type).toBe('group');
+    expect(result[0].group.title).toBe('Group A');
+    expect(result[1].type).toBe('tab');
+    expect(result[1].tab.title).toBe('Last Tab');
+  });
+
+  test('should interleave groups and ungrouped tabs by index', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Ungrouped 1', groupId: -1, index: 0 },
+        { id: 2, title: 'Group A Tab', groupId: 1, index: 1 },
+        { id: 3, title: 'Ungrouped 2', groupId: -1, index: 2 },
+        { id: 4, title: 'Group B Tab', groupId: 2, index: 3 },
+        { id: 5, title: 'Ungrouped 3', groupId: -1, index: 4 },
+      ],
+    };
+    const groups = [
+      { id: 1, title: 'Group A', windowId: 1 },
+      { id: 2, title: 'Group B', windowId: 1 },
+    ];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(5);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('Ungrouped 1');
+    expect(result[1].type).toBe('group');
+    expect(result[1].group.title).toBe('Group A');
+    expect(result[2].type).toBe('tab');
+    expect(result[2].tab.title).toBe('Ungrouped 2');
+    expect(result[3].type).toBe('group');
+    expect(result[3].group.title).toBe('Group B');
+    expect(result[4].type).toBe('tab');
+    expect(result[4].tab.title).toBe('Ungrouped 3');
+  });
+
+  test('should handle multiple tabs in a single group', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'Ungrouped First', groupId: -1, index: 0 },
+        { id: 2, title: 'Group Tab 1', groupId: 1, index: 1 },
+        { id: 3, title: 'Group Tab 2', groupId: 1, index: 2 },
+        { id: 4, title: 'Group Tab 3', groupId: 1, index: 3 },
+        { id: 5, title: 'Ungrouped Last', groupId: -1, index: 4 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Big Group', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(3);
+    expect(result[0].type).toBe('tab');
+    expect(result[1].type).toBe('group');
+    expect(result[1].tabs.length).toBe(3);
+    expect(result[2].type).toBe('tab');
+  });
+
+  test('should handle tabs array without explicit index property', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { id: 1, title: 'First', groupId: -1 },
+        { id: 2, title: 'Group Tab', groupId: 1 },
+        { id: 3, title: 'Last', groupId: -1 },
+      ],
+    };
+    const groups = [{ id: 1, title: 'Group', windowId: 1 }];
+
+    const result = buildOrderedWindowContent(win, groups);
+
+    expect(result.length).toBe(3);
+    expect(result[0].type).toBe('tab');
+    expect(result[0].tab.title).toBe('First');
+    expect(result[1].type).toBe('group');
+    expect(result[2].type).toBe('tab');
+    expect(result[2].tab.title).toBe('Last');
+  });
+});
+
 describe('3-level hierarchy validation', () => {
   test('should correctly build 3-level hierarchy from mock data', () => {
     const windows = [

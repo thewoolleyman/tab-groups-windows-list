@@ -346,6 +346,132 @@ test.describe("BUG FIX #2: Windows with no groups show all tabs", () => {
 });
 
 // =============================================================================
+// TAB ORDERING TESTS (t17) - TDD: These tests verify correct tab/group order
+// =============================================================================
+
+// Test data where ungrouped tabs should appear BEFORE groups
+const ungroupedFirstMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Test Window",
+      tabs: [
+        { id: 1, title: "First Ungrouped", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Second Ungrouped", groupId: -1, index: 1, favIconUrl: null },
+        { id: 3, title: "Group Tab 1", groupId: 1, index: 2, favIconUrl: null },
+        { id: 4, title: "Group Tab 2", groupId: 1, index: 3, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [{ id: 1, title: "My Group", color: "blue", windowId: 1 }],
+};
+
+// Test data with interleaved tabs and groups
+const interleavedMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Interleaved Window",
+      tabs: [
+        { id: 1, title: "Ungrouped A", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Group 1 Tab", groupId: 1, index: 1, favIconUrl: null },
+        { id: 3, title: "Ungrouped B", groupId: -1, index: 2, favIconUrl: null },
+        { id: 4, title: "Group 2 Tab", groupId: 2, index: 3, favIconUrl: null },
+        { id: 5, title: "Ungrouped C", groupId: -1, index: 4, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [
+    { id: 1, title: "First Group", color: "blue", windowId: 1 },
+    { id: 2, title: "Second Group", color: "red", windowId: 1 },
+  ],
+};
+
+test.describe("TAB ORDERING (t17): Groups and tabs should display in actual window order", () => {
+  test("ungrouped tabs at start should appear before groups", async ({ page }) => {
+    await setupPageWithMockData(page, ungroupedFirstMockData);
+
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+
+    // Get all direct children of window content (groups and ungrouped tabs)
+    const windowContent = windowItem.locator(".content").first();
+    const contentChildren = windowContent.locator("> *");
+
+    // Should have 3 items: 2 ungrouped tabs, then 1 group
+    await expect(contentChildren).toHaveCount(3);
+
+    // First two items should be ungrouped tabs
+    const firstChild = contentChildren.nth(0);
+    const secondChild = contentChildren.nth(1);
+    const thirdChild = contentChildren.nth(2);
+
+    await expect(firstChild).toHaveClass(/ungrouped-tab/);
+    await expect(firstChild).toContainText("First Ungrouped");
+
+    await expect(secondChild).toHaveClass(/ungrouped-tab/);
+    await expect(secondChild).toContainText("Second Ungrouped");
+
+    // Third item should be the group
+    await expect(thirdChild).toHaveClass(/group-item/);
+  });
+
+  test("interleaved tabs and groups should maintain correct order", async ({ page }) => {
+    await setupPageWithMockData(page, interleavedMockData);
+
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+
+    // Get all direct children of window content
+    const windowContent = windowItem.locator(".content").first();
+    const contentChildren = windowContent.locator("> *");
+
+    // Should have 5 items in order: tab, group, tab, group, tab
+    await expect(contentChildren).toHaveCount(5);
+
+    // Check the order
+    await expect(contentChildren.nth(0)).toHaveClass(/ungrouped-tab/);
+    await expect(contentChildren.nth(0)).toContainText("Ungrouped A");
+
+    await expect(contentChildren.nth(1)).toHaveClass(/group-item/);
+    await expect(contentChildren.nth(1).locator(".group-header")).toContainText("First Group");
+
+    await expect(contentChildren.nth(2)).toHaveClass(/ungrouped-tab/);
+    await expect(contentChildren.nth(2)).toContainText("Ungrouped B");
+
+    await expect(contentChildren.nth(3)).toHaveClass(/group-item/);
+    await expect(contentChildren.nth(3).locator(".group-header")).toContainText("Second Group");
+
+    await expect(contentChildren.nth(4)).toHaveClass(/ungrouped-tab/);
+    await expect(contentChildren.nth(4)).toContainText("Ungrouped C");
+  });
+
+  test("should capture screenshot of correctly ordered interleaved content", async ({ page }) => {
+    await setupPageWithMockData(page, interleavedMockData);
+
+    // Expand window and groups
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+
+    const groups = windowItem.locator(".group-item");
+    const groupCount = await groups.count();
+    for (let i = 0; i < groupCount; i++) {
+      await groups.nth(i).locator(".expand-icon").first().click();
+      await page.waitForTimeout(100);
+    }
+
+    await page.waitForTimeout(300);
+
+    await page.screenshot({
+      path: "screenshots/interleaved-ordering.png",
+      fullPage: true,
+    });
+  });
+});
+
+// =============================================================================
 // EXISTING TESTS - These should continue to pass
 // =============================================================================
 
