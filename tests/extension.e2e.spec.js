@@ -125,22 +125,42 @@ const multiWindowMixedMockData = {
 // Helper function to set up the page with mock data
 async function setupPageWithMockData(page, mockData = richMockData) {
   await page.goto(`file://${popupPath}`);
-  
+
   await page.addInitScript((data) => {
+    // Store mock data for potential updates
+    window._mockData = data;
+
+    // Create event listener mock
+    const createEventMock = () => ({
+      addListener: () => {},
+      removeListener: () => {},
+    });
+
     window.chrome = {
       windows: {
-        getAll: () => Promise.resolve(data.windows),
+        getAll: () => Promise.resolve(window._mockData.windows),
         update: () => Promise.resolve(),
+        onCreated: createEventMock(),
+        onRemoved: createEventMock(),
       },
       tabGroups: {
-        query: () => Promise.resolve(data.groups),
+        query: () => Promise.resolve(window._mockData.groups),
+        onCreated: createEventMock(),
+        onRemoved: createEventMock(),
+        onUpdated: createEventMock(),
       },
       tabs: {
         update: () => Promise.resolve(),
+        onCreated: createEventMock(),
+        onRemoved: createEventMock(),
+        onUpdated: createEventMock(),
+        onMoved: createEventMock(),
+        onAttached: createEventMock(),
+        onDetached: createEventMock(),
       },
     };
   }, mockData);
-  
+
   await page.reload();
   await page.waitForTimeout(500);
 }
