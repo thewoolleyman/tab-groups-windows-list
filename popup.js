@@ -60,73 +60,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Find groups in this window
       const groupsInWindow = groups.filter(g => g.windowId === win.id);
-      
-      // Also find tabs in this window that are NOT in a group
-      const ungroupedTabs = win.tabs.filter(t => t.groupId === -1);
 
-      // Add Groups
-      groupsInWindow.forEach(group => {
-        const groupEl = document.createElement('div');
-        groupEl.className = 'group-item';
-        
-        const groupHeader = document.createElement('div');
-        groupHeader.className = 'group-header';
-        
-        const gExpandIcon = document.createElement('span');
-        gExpandIcon.className = 'expand-icon';
-        gExpandIcon.textContent = '▶';
-        
-        const gDot = document.createElement('div');
-        gDot.className = 'group-dot';
-        gDot.style.backgroundColor = mapColor(group.color);
-        
-        const gTitle = document.createElement('span');
-        gTitle.textContent = group.title || '(Untitled Group)';
-        
-        groupHeader.appendChild(gExpandIcon);
-        groupHeader.appendChild(gDot);
-        groupHeader.appendChild(gTitle);
-        
-        // Click to focus first tab in group
-        groupHeader.addEventListener('click', (e) => {
-          if (e.target === gExpandIcon) {
-            groupEl.classList.toggle('expanded');
-          } else {
-            const firstTab = win.tabs.find(t => t.groupId === group.id);
-            if (firstTab) {
-              chrome.windows.update(win.id, { focused: true });
-              chrome.tabs.update(firstTab.id, { active: true });
-            }
-          }
-        });
+      // Build ordered content: interleave groups and ungrouped tabs by tab index
+      const orderedContent = buildOrderedWindowContent(win, groupsInWindow);
 
-        gExpandIcon.addEventListener('click', (e) => {
-          e.stopPropagation();
-          groupEl.classList.toggle('expanded');
-        });
-
-        const groupContent = document.createElement('div');
-        groupContent.className = 'content';
-
-        // Add Tabs in this group
-        const tabsInGroup = win.tabs.filter(t => t.groupId === group.id);
-        tabsInGroup.forEach(tab => {
-          const tabEl = createTabElement(tab, win.id);
-          groupContent.appendChild(tabEl);
-        });
-
-        groupEl.appendChild(groupHeader);
-        groupEl.appendChild(groupContent);
-        windowContent.appendChild(groupEl);
-      });
-
-      // Add Ungrouped Tabs (directly under window, not in a group)
-      if (ungroupedTabs.length > 0) {
-        ungroupedTabs.forEach(tab => {
-          const tabEl = createTabElement(tab, win.id, true); // Pass true to mark as ungrouped
+      // Render ordered content
+      orderedContent.forEach(item => {
+        if (item.type === 'tab') {
+          const tabEl = createTabElement(item.tab, win.id, true);
           windowContent.appendChild(tabEl);
-        });
-      }
+        } else if (item.type === 'group') {
+          const groupEl = createGroupElement(item.group, item.tabs, win.id);
+          windowContent.appendChild(groupEl);
+        }
+      });
 
       windowEl.appendChild(windowHeader);
       windowEl.appendChild(windowContent);
@@ -175,4 +122,105 @@ function mapColor(chromeColor) {
     'orange': '#fa903e'
   };
   return colors[chromeColor] || '#5a5a5a';
+}
+
+/**
+ * Build ordered window content - interleaves groups and ungrouped tabs by tab index
+ * @param {Object} win - Window object with tabs array
+ * @param {Array} groupsInWindow - Array of group objects in this window
+ * @returns {Array} - Array of items in correct order: {type: 'group'|'tab', ...data}
+ */
+function buildOrderedWindowContent(win, groupsInWindow) {
+  // Get all tabs with their indices (use array index if index property not available)
+  const tabsWithIndex = win.tabs.map((tab, arrayIndex) => ({
+    ...tab,
+    index: tab.index !== undefined ? tab.index : arrayIndex
+  }));
+
+  // Build ordered content array
+  const result = [];
+  const processedGroupIds = new Set();
+
+  // Sort tabs by index
+  const sortedTabs = [...tabsWithIndex].sort((a, b) => a.index - b.index);
+
+  for (const tab of sortedTabs) {
+    if (tab.groupId === -1) {
+      // Ungrouped tab - add directly
+      result.push({ type: 'tab', tab });
+    } else if (!processedGroupIds.has(tab.groupId)) {
+      // First tab of a group - add the group with all its tabs
+      const group = groupsInWindow.find(g => g.id === tab.groupId);
+      if (group) {
+        const tabsInGroup = tabsWithIndex.filter(t => t.groupId === group.id);
+        result.push({ type: 'group', group, tabs: tabsInGroup });
+        processedGroupIds.add(tab.groupId);
+      }
+    }
+    // Skip subsequent tabs of already-processed groups
+  }
+
+  return result;
+}
+
+/**
+ * Create a group element with its tabs
+ * @param {Object} group - Group object
+ * @param {Array} tabs - Array of tabs in this group
+ * @param {number} windowId - Window ID for click handlers
+ * @returns {HTMLElement} - The group DOM element
+ */
+function createGroupElement(group, tabs, windowId) {
+  const groupEl = document.createElement('div');
+  groupEl.className = 'group-item';
+
+  const groupHeader = document.createElement('div');
+  groupHeader.className = 'group-header';
+
+  const gExpandIcon = document.createElement('span');
+  gExpandIcon.className = 'expand-icon';
+  gExpandIcon.textContent = '▶';
+
+  const gDot = document.createElement('div');
+  gDot.className = 'group-dot';
+  gDot.style.backgroundColor = mapColor(group.color);
+
+  const gTitle = document.createElement('span');
+  gTitle.textContent = group.title || '(Untitled Group)';
+
+  groupHeader.appendChild(gExpandIcon);
+  groupHeader.appendChild(gDot);
+  groupHeader.appendChild(gTitle);
+
+  // Click to focus first tab in group
+  groupHeader.addEventListener('click', (e) => {
+    if (e.target === gExpandIcon) {
+      groupEl.classList.toggle('expanded');
+    } else {
+      const firstTab = tabs[0];
+      if (firstTab) {
+        chrome.windows.update(windowId, { focused: true });
+        chrome.tabs.update(firstTab.id, { active: true });
+      }
+    }
+  });
+
+  gExpandIcon.addEventListener('click', (e) => {
+    e.stopPropagation();
+    groupEl.classList.toggle('expanded');
+  });
+
+  const groupContent = document.createElement('div');
+  groupContent.className = 'content';
+
+  // Add tabs in this group
+  tabs.forEach(tab => {
+    const tabEl = createTabElement(tab, windowId);
+    groupContent.appendChild(tabEl);
+  });
+
+  groupEl.appendChild(groupHeader);
+  groupEl.appendChild(groupContent);
+
+  return groupEl;
 }
