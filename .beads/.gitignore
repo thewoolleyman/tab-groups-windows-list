@@ -12,10 +12,6 @@ daemon.pid
 bd.sock
 sync-state.json
 last-touched
-.sync.lock
-
-# Sync base tracking (used for merge operations)
-sync_base.jsonl
 
 # Local version tracking (prevents upgrade notification spam after git ops)
 .local_version
