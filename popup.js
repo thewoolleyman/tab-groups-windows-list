@@ -20,6 +20,46 @@ function setContainer(el) {
 }
 
 /**
+ * Generate a meaningful window name from tab titles
+ * @param {Array} tabs - Array of tab objects
+ * @returns {string} - Window name (max 60 chars)
+ */
+function generateWindowName(tabs) {
+  if (!tabs || tabs.length === 0) return '';
+
+  const MAX_TAB_NAME_LENGTH = 12;
+  const MAX_TOTAL_LENGTH = 60;
+  const SEPARATOR = ', ';
+
+  const parts = [];
+  let currentLength = 0;
+
+  for (const tab of tabs) {
+    const title = tab.title || 'New Tab';
+    let truncatedTitle = title;
+
+    // Truncate individual tab name if > 12 chars
+    if (title.length > MAX_TAB_NAME_LENGTH) {
+      truncatedTitle = title.substring(0, MAX_TAB_NAME_LENGTH) + '...';
+    }
+
+    // Calculate what the new length would be
+    const separatorLength = parts.length > 0 ? SEPARATOR.length : 0;
+    const newLength = currentLength + separatorLength + truncatedTitle.length;
+
+    // Stop if adding this would exceed 60 chars
+    if (newLength > MAX_TOTAL_LENGTH && parts.length > 0) {
+      break;
+    }
+
+    parts.push(truncatedTitle);
+    currentLength = newLength;
+  }
+
+  return parts.join(SEPARATOR);
+}
+
+/**
  * Debounce function to prevent rapid re-renders
  * @param {Function} fn - Function to debounce
  * @param {number} delay - Delay in milliseconds
@@ -73,8 +113,9 @@ async function refreshUI() {
       const windowEl = document.createElement('div');
       windowEl.className = 'window-item';
 
-      /* istanbul ignore next - title fallback tested via unit tests */
-      const windowTitle = win.title || `Window ${win.id}`;
+      // Generate window name from tab titles
+      /* istanbul ignore next - tabs always present with populate:true */
+      const windowTitle = generateWindowName(win.tabs || []);
 
       // Restore expansion state
       if (expandedWindows.has(windowTitle)) {
@@ -352,6 +393,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     debounce,
     mapColor,
+    generateWindowName,
     buildOrderedWindowContent,
     createGroupElement,
     createTabElement,

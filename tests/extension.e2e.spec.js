@@ -219,13 +219,13 @@ test.describe("BUG FIX #1: Tab titles display correctly", () => {
 test.describe("BUG FIX #2: Windows with no groups show all tabs", () => {
   test("window with NO groups should still be displayed", async ({ page }) => {
     await setupPageWithMockData(page, windowWithNoGroupsMockData);
-    
+
     // The window should be visible
     const windows = page.locator(".window-item");
     await expect(windows).toHaveCount(1);
-    
-    // Window title should be correct
-    await expect(page.locator(".window-header")).toContainText("Window With No Groups");
+
+    // Window name is now generated from tab titles (truncated to 12 chars + ...)
+    await expect(page.locator(".window-header")).toContainText("Ungrouped Ta...");
   });
 
   test("window with NO groups should show all ungrouped tabs when expanded", async ({ page }) => {
@@ -437,6 +437,154 @@ test.describe("LIVE UI UPDATES (t18): UI should update when tabs/windows change"
 });
 
 // =============================================================================
+// WINDOW NAMING TESTS (t21) - Window names based on tab titles
+// =============================================================================
+
+// Test data for window naming
+const windowNamingMockData = {
+  windows: [
+    {
+      id: 1,
+      tabs: [
+        { id: 1, title: "GitHub", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Google", groupId: -1, index: 1, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [],
+};
+
+const longTabNamesMockData = {
+  windows: [
+    {
+      id: 1,
+      tabs: [
+        { id: 1, title: "Very Long Tab Title That Should Be Truncated", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Another Extremely Long Tab Title", groupId: -1, index: 1, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [],
+};
+
+const manyTabsMockData = {
+  windows: [
+    {
+      id: 1,
+      tabs: [
+        { id: 1, title: "Tab One", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Tab Two", groupId: -1, index: 1, favIconUrl: null },
+        { id: 3, title: "Tab Three", groupId: -1, index: 2, favIconUrl: null },
+        { id: 4, title: "Tab Four", groupId: -1, index: 3, favIconUrl: null },
+        { id: 5, title: "Tab Five", groupId: -1, index: 4, favIconUrl: null },
+        { id: 6, title: "Tab Six", groupId: -1, index: 5, favIconUrl: null },
+        { id: 7, title: "Tab Seven", groupId: -1, index: 6, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [],
+};
+
+test.describe("WINDOW NAMING (t21): Window names generated from tab titles", () => {
+  test("window name should be generated from short tab titles", async ({ page }) => {
+    await setupPageWithMockData(page, windowNamingMockData);
+
+    // The window name should be "GitHub, Google"
+    const windowHeader = page.locator(".window-header").first();
+    await expect(windowHeader).toContainText("GitHub, Google");
+  });
+
+  test("long tab names should be truncated to 12 chars + ellipsis", async ({ page }) => {
+    await setupPageWithMockData(page, longTabNamesMockData);
+
+    const windowHeader = page.locator(".window-header").first();
+    // "Very Long Ta..." (15 chars), "Another Extr..." (15 chars)
+    await expect(windowHeader).toContainText("Very Long Ta...");
+    await expect(windowHeader).toContainText("Another Extr...");
+  });
+
+  test("window name should not exceed 60 characters", async ({ page }) => {
+    await setupPageWithMockData(page, manyTabsMockData);
+
+    const windowHeader = page.locator(".window-header").first();
+    const windowText = await windowHeader.locator("span:last-child").textContent();
+
+    // The window name should be <= 60 chars
+    expect(windowText.length).toBeLessThanOrEqual(60);
+
+    // Should contain at least the first few tabs
+    expect(windowText).toContain("Tab One");
+    expect(windowText).toContain("Tab Two");
+  });
+
+  test("window name should update when tabs change (live update)", async ({ page }) => {
+    await setupPageWithMockData(page, windowNamingMockData);
+
+    // Verify initial window name
+    const windowHeader = page.locator(".window-header").first();
+    await expect(windowHeader).toContainText("GitHub, Google");
+
+    // Update mock data to change tab titles
+    await page.evaluate(() => {
+      window._mockData = {
+        windows: [
+          {
+            id: 1,
+            tabs: [
+              { id: 1, title: "New Tab 1", groupId: -1, index: 0, favIconUrl: null },
+              { id: 2, title: "New Tab 2", groupId: -1, index: 1, favIconUrl: null },
+            ],
+          },
+        ],
+        groups: [],
+      };
+      window.chrome.windows.getAll = () => Promise.resolve(window._mockData.windows);
+    });
+
+    // Trigger refresh
+    await page.evaluate(() => window.refreshUI());
+    await page.waitForTimeout(500);
+
+    // Window name should now reflect new tabs
+    await expect(windowHeader).toContainText("New Tab 1, New Tab 2");
+  });
+
+  test("empty tab title should show 'New Tab' as fallback", async ({ page }) => {
+    const emptyTitleMockData = {
+      windows: [
+        {
+          id: 1,
+          tabs: [
+            { id: 1, title: "", groupId: -1, index: 0, favIconUrl: null },
+            { id: 2, title: "Valid Tab", groupId: -1, index: 1, favIconUrl: null },
+          ],
+        },
+      ],
+      groups: [],
+    };
+
+    await setupPageWithMockData(page, emptyTitleMockData);
+
+    const windowHeader = page.locator(".window-header").first();
+    await expect(windowHeader).toContainText("New Tab, Valid Tab");
+  });
+
+  test("should capture screenshot of window with generated name", async ({ page }) => {
+    await setupPageWithMockData(page, manyTabsMockData);
+
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+    await page.waitForTimeout(300);
+
+    await page.screenshot({
+      path: "screenshots/window-naming-generated.png",
+      fullPage: true,
+    });
+  });
+});
+
+// =============================================================================
 // TAB ORDERING TESTS (t17) - TDD: These tests verify correct tab/group order
 // =============================================================================
 
@@ -588,10 +736,13 @@ test.describe("Extension Popup UI Structure", () => {
     await expect(windowItems).toHaveCount(2);
   });
 
-  test("should display correct window titles", async ({ page }) => {
+  test("should display correct window titles (generated from tab names)", async ({ page }) => {
     const windowHeaders = page.locator(".window-header");
-    await expect(windowHeaders.first()).toContainText("Work Window");
-    await expect(windowHeaders.nth(1)).toContainText("Personal Window");
+    // Window names are now generated from tab titles
+    // Window 1 tabs: "Project Dashboard", "Code Review", "Documentation", "API Reference"
+    await expect(windowHeaders.first()).toContainText("Project Dash...");
+    // Window 2 tabs: "Email Inbox", "Calendar", "News Feed", "Weather"
+    await expect(windowHeaders.nth(1)).toContainText("Email Inbox");
   });
 
   test("should expand window to show groups", async ({ page }) => {

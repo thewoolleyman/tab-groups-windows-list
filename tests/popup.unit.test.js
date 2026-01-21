@@ -645,6 +645,117 @@ describe('Window naming logic', () => {
   });
 });
 
+describe('generateWindowName function', () => {
+  // Import the function (will be added to exports)
+  const { generateWindowName } = require('../popup.js');
+
+  test('should return empty string for empty tabs array', () => {
+    expect(generateWindowName([])).toBe('');
+  });
+
+  test('should return single short tab name without ellipsis', () => {
+    const tabs = [{ title: 'GitHub' }];
+    expect(generateWindowName(tabs)).toBe('GitHub');
+  });
+
+  test('should truncate single long tab name to 12 chars + ellipsis', () => {
+    const tabs = [{ title: 'This is a very long tab title' }];
+    expect(generateWindowName(tabs)).toBe('This is a ve...');
+  });
+
+  test('should join multiple short tab names with comma', () => {
+    const tabs = [
+      { title: 'GitHub' },
+      { title: 'Google' }
+    ];
+    expect(generateWindowName(tabs)).toBe('GitHub, Google');
+  });
+
+  test('should truncate each tab name to 12 chars + ellipsis', () => {
+    const tabs = [
+      { title: 'Very Long Title One' },
+      { title: 'Another Long Title' }
+    ];
+    expect(generateWindowName(tabs)).toBe('Very Long Ti..., Another Long...');
+  });
+
+  test('should limit total length to 60 characters', () => {
+    const tabs = [
+      { title: 'Tab One' },
+      { title: 'Tab Two' },
+      { title: 'Tab Three' },
+      { title: 'Tab Four' },
+      { title: 'Tab Five' },
+      { title: 'Tab Six' }
+    ];
+    const result = generateWindowName(tabs);
+    expect(result.length).toBeLessThanOrEqual(60);
+  });
+
+  test('should stop adding tabs when 60 char limit would be exceeded', () => {
+    const tabs = [
+      { title: 'First Tab Name' },
+      { title: 'Second Tab Name' },
+      { title: 'Third Tab Name' },
+      { title: 'Fourth Tab Name' }
+    ];
+    const result = generateWindowName(tabs);
+    expect(result.length).toBeLessThanOrEqual(60);
+    // Should include some tabs but not all
+    expect(result).toContain('First Tab Na...');
+  });
+
+  test('should handle tabs with empty titles', () => {
+    const tabs = [
+      { title: '' },
+      { title: 'Valid Tab' }
+    ];
+    const result = generateWindowName(tabs);
+    expect(result).toBe('New Tab, Valid Tab');
+  });
+
+  test('should handle tabs with null titles', () => {
+    const tabs = [
+      { title: null },
+      { title: 'Valid Tab' }
+    ];
+    const result = generateWindowName(tabs);
+    expect(result).toBe('New Tab, Valid Tab');
+  });
+
+  test('should handle tabs with undefined titles', () => {
+    const tabs = [
+      {},
+      { title: 'Valid Tab' }
+    ];
+    const result = generateWindowName(tabs);
+    expect(result).toBe('New Tab, Valid Tab');
+  });
+
+  test('should handle exactly 12 character tab name without ellipsis', () => {
+    const tabs = [{ title: '123456789012' }]; // exactly 12 chars
+    expect(generateWindowName(tabs)).toBe('123456789012');
+  });
+
+  test('should handle 13 character tab name with ellipsis', () => {
+    const tabs = [{ title: '1234567890123' }]; // 13 chars
+    expect(generateWindowName(tabs)).toBe('123456789012...');
+  });
+
+  test('should not add trailing comma when stopping at limit', () => {
+    const tabs = [
+      { title: 'First' },
+      { title: 'Second' },
+      { title: 'Third' },
+      { title: 'Fourth' },
+      { title: 'Fifth' }
+    ];
+    const result = generateWindowName(tabs);
+    expect(result.endsWith(',')).toBe(false);
+    expect(result.endsWith(', ')).toBe(false);
+  });
+});
+
 describe('Group naming logic', () => {
   test('should use group title if available', () => {
     const group = { id: 1, title: 'My Group' };
@@ -755,9 +866,9 @@ describe('refreshUI function', () => {
   });
 
   test('should preserve expansion state of windows', async () => {
-    // Create mock expanded window element
+    // The window name is generated from tab titles - 'GitHub' will be the generated name
     const mockExpandedWindow = {
-      querySelector: jest.fn().mockReturnValue({ textContent: 'Expanded Window' })
+      querySelector: jest.fn().mockReturnValue({ textContent: 'GitHub' })
     };
     mockDocument.querySelectorAll.mockImplementation((selector) => {
       if (selector === '.window-item.expanded') {
@@ -766,16 +877,31 @@ describe('refreshUI function', () => {
       return [];
     });
 
+    // Track if classList.add was called with 'expanded'
+    let expandedAdded = false;
+    mockDocument.createElement.mockImplementation((tag) => ({
+      className: '',
+      classList: {
+        add: jest.fn((cls) => { if (cls === 'expanded') expandedAdded = true; }),
+        toggle: jest.fn()
+      },
+      style: {},
+      textContent: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn()
+    }));
+
     setContainer(mockContainer);
     mockChrome.windows.getAll.mockResolvedValue([
-      { id: 1, title: 'Expanded Window', tabs: [] }
+      { id: 1, tabs: [{ title: 'GitHub', groupId: -1, index: 0 }] }
     ]);
     mockChrome.tabGroups.query.mockResolvedValue([]);
 
     await refreshUI();
 
-    // The window should be marked as expanded
+    // The window should be marked as expanded because the generated name matches
     expect(mockDocument.querySelectorAll).toHaveBeenCalledWith('.window-item.expanded');
+    expect(expandedAdded).toBe(true);
   });
 
   test('should preserve expansion state of groups', async () => {
