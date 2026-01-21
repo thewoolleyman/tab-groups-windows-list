@@ -125,22 +125,42 @@ const multiWindowMixedMockData = {
 // Helper function to set up the page with mock data
 async function setupPageWithMockData(page, mockData = richMockData) {
   await page.goto(`file://${popupPath}`);
-  
+
   await page.addInitScript((data) => {
+    // Store mock data for potential updates
+    window._mockData = data;
+
+    // Create event listener mock
+    const createEventMock = () => ({
+      addListener: () => {},
+      removeListener: () => {},
+    });
+
     window.chrome = {
       windows: {
-        getAll: () => Promise.resolve(data.windows),
+        getAll: () => Promise.resolve(window._mockData.windows),
         update: () => Promise.resolve(),
+        onCreated: createEventMock(),
+        onRemoved: createEventMock(),
       },
       tabGroups: {
-        query: () => Promise.resolve(data.groups),
+        query: () => Promise.resolve(window._mockData.groups),
+        onCreated: createEventMock(),
+        onRemoved: createEventMock(),
+        onUpdated: createEventMock(),
       },
       tabs: {
         update: () => Promise.resolve(),
+        onCreated: createEventMock(),
+        onRemoved: createEventMock(),
+        onUpdated: createEventMock(),
+        onMoved: createEventMock(),
+        onAttached: createEventMock(),
+        onDetached: createEventMock(),
       },
     };
   }, mockData);
-  
+
   await page.reload();
   await page.waitForTimeout(500);
 }
@@ -340,6 +360,203 @@ test.describe("BUG FIX #2: Windows with no groups show all tabs", () => {
     
     await page.screenshot({
       path: "screenshots/multi-window-scenarios.png",
+      fullPage: true,
+    });
+  });
+});
+
+// =============================================================================
+// LIVE UI UPDATES TESTS (t18) - TDD: These tests verify event listeners are set up
+// =============================================================================
+
+test.describe("LIVE UI UPDATES (t18): UI should update when tabs/windows change", () => {
+  test("should have refresh function available in popup", async ({ page }) => {
+    await setupPageWithMockData(page, richMockData);
+
+    // Check that refreshUI function exists and is callable
+    const hasRefreshUI = await page.evaluate(() => {
+      return typeof window.refreshUI === 'function';
+    });
+
+    expect(hasRefreshUI).toBe(true);
+  });
+
+  test("should have event listeners registered", async ({ page }) => {
+    await setupPageWithMockData(page, richMockData);
+
+    // Check that chrome event listeners were set up
+    const listenersSetup = await page.evaluate(() => {
+      // The mock chrome object should have listeners registered
+      return window._chromeListenersRegistered === true;
+    });
+
+    expect(listenersSetup).toBe(true);
+  });
+
+  test("refreshUI should update the display when called", async ({ page }) => {
+    // Set up initial data
+    await setupPageWithMockData(page, richMockData);
+
+    // Verify initial state - should have 2 windows
+    await expect(page.locator(".window-item")).toHaveCount(2);
+
+    // Update the mock data to simulate a change
+    await page.evaluate(() => {
+      // Simulate adding a third window to the mock
+      window._mockData = {
+        windows: [
+          ...window._mockData.windows,
+          {
+            id: 3,
+            title: "New Window",
+            tabs: [
+              { id: 100, title: "New Tab", groupId: -1, favIconUrl: null },
+            ],
+          },
+        ],
+        groups: window._mockData.groups,
+      };
+
+      // Update the mock chrome API to return new data
+      window.chrome.windows.getAll = () => Promise.resolve(window._mockData.windows);
+    });
+
+    // Call refresh
+    await page.evaluate(() => {
+      if (typeof window.refreshUI === 'function') {
+        window.refreshUI();
+      }
+    });
+
+    // Wait for refresh to complete
+    await page.waitForTimeout(500);
+
+    // Should now have 3 windows
+    await expect(page.locator(".window-item")).toHaveCount(3);
+  });
+});
+
+// =============================================================================
+// TAB ORDERING TESTS (t17) - TDD: These tests verify correct tab/group order
+// =============================================================================
+
+// Test data where ungrouped tabs should appear BEFORE groups
+const ungroupedFirstMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Test Window",
+      tabs: [
+        { id: 1, title: "First Ungrouped", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Second Ungrouped", groupId: -1, index: 1, favIconUrl: null },
+        { id: 3, title: "Group Tab 1", groupId: 1, index: 2, favIconUrl: null },
+        { id: 4, title: "Group Tab 2", groupId: 1, index: 3, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [{ id: 1, title: "My Group", color: "blue", windowId: 1 }],
+};
+
+// Test data with interleaved tabs and groups
+const interleavedMockData = {
+  windows: [
+    {
+      id: 1,
+      title: "Interleaved Window",
+      tabs: [
+        { id: 1, title: "Ungrouped A", groupId: -1, index: 0, favIconUrl: null },
+        { id: 2, title: "Group 1 Tab", groupId: 1, index: 1, favIconUrl: null },
+        { id: 3, title: "Ungrouped B", groupId: -1, index: 2, favIconUrl: null },
+        { id: 4, title: "Group 2 Tab", groupId: 2, index: 3, favIconUrl: null },
+        { id: 5, title: "Ungrouped C", groupId: -1, index: 4, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [
+    { id: 1, title: "First Group", color: "blue", windowId: 1 },
+    { id: 2, title: "Second Group", color: "red", windowId: 1 },
+  ],
+};
+
+test.describe("TAB ORDERING (t17): Groups and tabs should display in actual window order", () => {
+  test("ungrouped tabs at start should appear before groups", async ({ page }) => {
+    await setupPageWithMockData(page, ungroupedFirstMockData);
+
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+
+    // Get all direct children of window content (groups and ungrouped tabs)
+    const windowContent = windowItem.locator(".content").first();
+    const contentChildren = windowContent.locator("> *");
+
+    // Should have 3 items: 2 ungrouped tabs, then 1 group
+    await expect(contentChildren).toHaveCount(3);
+
+    // First two items should be ungrouped tabs
+    const firstChild = contentChildren.nth(0);
+    const secondChild = contentChildren.nth(1);
+    const thirdChild = contentChildren.nth(2);
+
+    await expect(firstChild).toHaveClass(/ungrouped-tab/);
+    await expect(firstChild).toContainText("First Ungrouped");
+
+    await expect(secondChild).toHaveClass(/ungrouped-tab/);
+    await expect(secondChild).toContainText("Second Ungrouped");
+
+    // Third item should be the group
+    await expect(thirdChild).toHaveClass(/group-item/);
+  });
+
+  test("interleaved tabs and groups should maintain correct order", async ({ page }) => {
+    await setupPageWithMockData(page, interleavedMockData);
+
+    // Expand the window
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+
+    // Get all direct children of window content
+    const windowContent = windowItem.locator(".content").first();
+    const contentChildren = windowContent.locator("> *");
+
+    // Should have 5 items in order: tab, group, tab, group, tab
+    await expect(contentChildren).toHaveCount(5);
+
+    // Check the order
+    await expect(contentChildren.nth(0)).toHaveClass(/ungrouped-tab/);
+    await expect(contentChildren.nth(0)).toContainText("Ungrouped A");
+
+    await expect(contentChildren.nth(1)).toHaveClass(/group-item/);
+    await expect(contentChildren.nth(1).locator(".group-header")).toContainText("First Group");
+
+    await expect(contentChildren.nth(2)).toHaveClass(/ungrouped-tab/);
+    await expect(contentChildren.nth(2)).toContainText("Ungrouped B");
+
+    await expect(contentChildren.nth(3)).toHaveClass(/group-item/);
+    await expect(contentChildren.nth(3).locator(".group-header")).toContainText("Second Group");
+
+    await expect(contentChildren.nth(4)).toHaveClass(/ungrouped-tab/);
+    await expect(contentChildren.nth(4)).toContainText("Ungrouped C");
+  });
+
+  test("should capture screenshot of correctly ordered interleaved content", async ({ page }) => {
+    await setupPageWithMockData(page, interleavedMockData);
+
+    // Expand window and groups
+    const windowItem = page.locator(".window-item").first();
+    await windowItem.locator(".expand-icon").first().click();
+
+    const groups = windowItem.locator(".group-item");
+    const groupCount = await groups.count();
+    for (let i = 0; i < groupCount; i++) {
+      await groups.nth(i).locator(".expand-icon").first().click();
+      await page.waitForTimeout(100);
+    }
+
+    await page.waitForTimeout(300);
+
+    await page.screenshot({
+      path: "screenshots/interleaved-ordering.png",
       fullPage: true,
     });
   });

@@ -166,12 +166,13 @@ jobs:
 
   # =============================================================================
   # Stage 4: Publish - Manual approval gate, then publish to Chrome Web Store
+  # Only runs when a new release was actually created (skips if version unchanged)
   # =============================================================================
   publish:
     name: Publish to Chrome Web Store
     runs-on: ubuntu-latest
     needs: [build, unit-tests, e2e-tests, release]
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push' && needs.release.outputs.release_created == 'true'
     environment: production
     steps:
       - name: Checkout repository

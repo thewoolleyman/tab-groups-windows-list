@@ -1,16 +1,53 @@
-document.addEventListener('DOMContentLoaded', async () => {
-  const container = document.getElementById('groups-container');
-  const helpBtn = document.getElementById('help-btn');
-  const helpModal = document.getElementById('help-modal');
-  const closeModal = document.getElementById('close-modal');
+/**
+ * Tab Groups & Windows List - Chrome Extension Popup
+ *
+ * Features:
+ * - 3-level hierarchy: Window > Tab Group > Tab
+ * - Correct tab ordering (interleaved groups and ungrouped tabs)
+ * - Live UI updates via Chrome event listeners
+ */
 
-  // Help Modal Logic
-  if (helpBtn) helpBtn.addEventListener('click', () => helpModal.style.display = 'block');
-  if (closeModal) closeModal.addEventListener('click', () => helpModal.style.display = 'none');
-  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.style.display = 'none'; });
+// Global state
+let container;
+let helpModal;
+
+/**
+ * Debounce function to prevent rapid re-renders
+ * @param {Function} fn - Function to debounce
+ * @param {number} delay - Delay in milliseconds
+ * @returns {Function} - Debounced function
+ */
+function debounce(fn, delay) {
+  let timeoutId;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), delay);
+  };
+}
+
+/**
+ * Refresh the UI by re-fetching data and re-rendering
+ * Exposed globally for testing and event handlers
+ */
+async function refreshUI() {
+  if (!container) return;
 
   try {
-    // 1. Fetch all data
+    // Preserve expansion state before re-render
+    const expandedWindows = new Set();
+    const expandedGroups = new Set();
+
+    document.querySelectorAll('.window-item.expanded').forEach(el => {
+      const title = el.querySelector('.window-header span:last-child')?.textContent;
+      if (title) expandedWindows.add(title);
+    });
+
+    document.querySelectorAll('.group-item.expanded').forEach(el => {
+      const title = el.querySelector('.group-header span:last-child')?.textContent;
+      if (title) expandedGroups.add(title);
+    });
+
+    // Fetch fresh data
     const windows = await chrome.windows.getAll({ populate: true });
     const groups = await chrome.tabGroups.query({});
 
@@ -19,27 +56,33 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    container.innerHTML = ''; // Clear loading message
+    container.innerHTML = ''; // Clear current content
 
-    // 2. Build Hierarchy: Window -> Group -> Tab
+    // Build Hierarchy: Window -> Group -> Tab
     windows.forEach(win => {
       const windowEl = document.createElement('div');
       windowEl.className = 'window-item';
-      
+
+      const windowTitle = win.title || `Window ${win.id}`;
+
+      // Restore expansion state
+      if (expandedWindows.has(windowTitle)) {
+        windowEl.classList.add('expanded');
+      }
+
       const windowHeader = document.createElement('div');
       windowHeader.className = 'window-header';
-      
+
       const expandIcon = document.createElement('span');
       expandIcon.className = 'expand-icon';
       expandIcon.textContent = '▶';
-      
-      const windowTitle = document.createElement('span');
-      // Use custom name if available, otherwise fallback to Window [ID]
-      windowTitle.textContent = win.title || `Window ${win.id}`;
-      
+
+      const windowTitleEl = document.createElement('span');
+      windowTitleEl.textContent = windowTitle;
+
       windowHeader.appendChild(expandIcon);
-      windowHeader.appendChild(windowTitle);
-      
+      windowHeader.appendChild(windowTitleEl);
+
       // Click to focus window
       windowHeader.addEventListener('click', (e) => {
         if (e.target === expandIcon) {
@@ -60,73 +103,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Find groups in this window
       const groupsInWindow = groups.filter(g => g.windowId === win.id);
-      
-      // Also find tabs in this window that are NOT in a group
-      const ungroupedTabs = win.tabs.filter(t => t.groupId === -1);
 
-      // Add Groups
-      groupsInWindow.forEach(group => {
-        const groupEl = document.createElement('div');
-        groupEl.className = 'group-item';
-        
-        const groupHeader = document.createElement('div');
-        groupHeader.className = 'group-header';
-        
-        const gExpandIcon = document.createElement('span');
-        gExpandIcon.className = 'expand-icon';
-        gExpandIcon.textContent = '▶';
-        
-        const gDot = document.createElement('div');
-        gDot.className = 'group-dot';
-        gDot.style.backgroundColor = mapColor(group.color);
-        
-        const gTitle = document.createElement('span');
-        gTitle.textContent = group.title || '(Untitled Group)';
-        
-        groupHeader.appendChild(gExpandIcon);
-        groupHeader.appendChild(gDot);
-        groupHeader.appendChild(gTitle);
-        
-        // Click to focus first tab in group
-        groupHeader.addEventListener('click', (e) => {
-          if (e.target === gExpandIcon) {
-            groupEl.classList.toggle('expanded');
-          } else {
-            const firstTab = win.tabs.find(t => t.groupId === group.id);
-            if (firstTab) {
-              chrome.windows.update(win.id, { focused: true });
-              chrome.tabs.update(firstTab.id, { active: true });
-            }
-          }
-        });
+      // Build ordered content: interleave groups and ungrouped tabs by tab index
+      const orderedContent = buildOrderedWindowContent(win, groupsInWindow);
 
-        gExpandIcon.addEventListener('click', (e) => {
-          e.stopPropagation();
-          groupEl.classList.toggle('expanded');
-        });
-
-        const groupContent = document.createElement('div');
-        groupContent.className = 'content';
-
-        // Add Tabs in this group
-        const tabsInGroup = win.tabs.filter(t => t.groupId === group.id);
-        tabsInGroup.forEach(tab => {
-          const tabEl = createTabElement(tab, win.id);
-          groupContent.appendChild(tabEl);
-        });
-
-        groupEl.appendChild(groupHeader);
-        groupEl.appendChild(groupContent);
-        windowContent.appendChild(groupEl);
-      });
-
-      // Add Ungrouped Tabs (directly under window, not in a group)
-      if (ungroupedTabs.length > 0) {
-        ungroupedTabs.forEach(tab => {
-          const tabEl = createTabElement(tab, win.id, true); // Pass true to mark as ungrouped
+      // Render ordered content
+      orderedContent.forEach(item => {
+        if (item.type === 'tab') {
+          const tabEl = createTabElement(item.tab, win.id, true);
           windowContent.appendChild(tabEl);
-        });
-      }
+        } else if (item.type === 'group') {
+          const groupEl = createGroupElement(item.group, item.tabs, win.id, expandedGroups);
+          windowContent.appendChild(groupEl);
+        }
+      });
 
       windowEl.appendChild(windowHeader);
       windowEl.appendChild(windowContent);
@@ -137,28 +127,84 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Error loading data:', error);
     container.innerHTML = '<div class="empty-msg">Error loading windows.</div>';
   }
+}
+
+// Expose refreshUI globally for testing
+window.refreshUI = refreshUI;
+
+/**
+ * Set up Chrome event listeners for live UI updates
+ */
+function setupEventListeners() {
+  // Debounced refresh to prevent rapid re-renders
+  const debouncedRefresh = debounce(refreshUI, 150);
+
+  // Tab events
+  if (chrome.tabs) {
+    chrome.tabs.onCreated.addListener(debouncedRefresh);
+    chrome.tabs.onRemoved.addListener(debouncedRefresh);
+    chrome.tabs.onUpdated.addListener(debouncedRefresh);
+    chrome.tabs.onMoved.addListener(debouncedRefresh);
+    chrome.tabs.onAttached.addListener(debouncedRefresh);
+    chrome.tabs.onDetached.addListener(debouncedRefresh);
+  }
+
+  // Tab group events
+  if (chrome.tabGroups) {
+    chrome.tabGroups.onCreated.addListener(debouncedRefresh);
+    chrome.tabGroups.onRemoved.addListener(debouncedRefresh);
+    chrome.tabGroups.onUpdated.addListener(debouncedRefresh);
+  }
+
+  // Window events
+  if (chrome.windows) {
+    chrome.windows.onCreated.addListener(debouncedRefresh);
+    chrome.windows.onRemoved.addListener(debouncedRefresh);
+  }
+
+  // Mark that listeners were registered (for testing)
+  window._chromeListenersRegistered = true;
+}
+
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', async () => {
+  container = document.getElementById('groups-container');
+  const helpBtn = document.getElementById('help-btn');
+  helpModal = document.getElementById('help-modal');
+  const closeModal = document.getElementById('close-modal');
+
+  // Help Modal Logic
+  if (helpBtn) helpBtn.addEventListener('click', () => helpModal.style.display = 'block');
+  if (closeModal) closeModal.addEventListener('click', () => helpModal.style.display = 'none');
+  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.style.display = 'none'; });
+
+  // Set up live update event listeners
+  setupEventListeners();
+
+  // Initial render
+  await refreshUI();
 });
 
 function createTabElement(tab, windowId, isUngrouped = false) {
   const tabEl = document.createElement('div');
   tabEl.className = isUngrouped ? 'tab-item ungrouped-tab' : 'tab-item';
-  
+
   if (tab.favIconUrl) {
     const icon = document.createElement('img');
     icon.className = 'tab-icon';
     icon.src = tab.favIconUrl;
     tabEl.appendChild(icon);
   }
-  
+
   const title = document.createElement('span');
   title.textContent = tab.title || 'New Tab';
   tabEl.appendChild(title);
-  
+
   tabEl.addEventListener('click', () => {
     chrome.windows.update(windowId, { focused: true });
     chrome.tabs.update(tab.id, { active: true });
   });
-  
+
   return tabEl;
 }
 
@@ -175,4 +221,113 @@ function mapColor(chromeColor) {
     'orange': '#fa903e'
   };
   return colors[chromeColor] || '#5a5a5a';
+}
+
+/**
+ * Build ordered window content - interleaves groups and ungrouped tabs by tab index
+ * @param {Object} win - Window object with tabs array
+ * @param {Array} groupsInWindow - Array of group objects in this window
+ * @returns {Array} - Array of items in correct order: {type: 'group'|'tab', ...data}
+ */
+function buildOrderedWindowContent(win, groupsInWindow) {
+  // Get all tabs with their indices (use array index if index property not available)
+  const tabsWithIndex = win.tabs.map((tab, arrayIndex) => ({
+    ...tab,
+    index: tab.index !== undefined ? tab.index : arrayIndex
+  }));
+
+  // Build ordered content array
+  const result = [];
+  const processedGroupIds = new Set();
+
+  // Sort tabs by index
+  const sortedTabs = [...tabsWithIndex].sort((a, b) => a.index - b.index);
+
+  for (const tab of sortedTabs) {
+    if (tab.groupId === -1) {
+      // Ungrouped tab - add directly
+      result.push({ type: 'tab', tab });
+    } else if (!processedGroupIds.has(tab.groupId)) {
+      // First tab of a group - add the group with all its tabs
+      const group = groupsInWindow.find(g => g.id === tab.groupId);
+      if (group) {
+        const tabsInGroup = tabsWithIndex.filter(t => t.groupId === group.id);
+        result.push({ type: 'group', group, tabs: tabsInGroup });
+        processedGroupIds.add(tab.groupId);
+      }
+    }
+    // Skip subsequent tabs of already-processed groups
+  }
+
+  return result;
+}
+
+/**
+ * Create a group element with its tabs
+ * @param {Object} group - Group object
+ * @param {Array} tabs - Array of tabs in this group
+ * @param {number} windowId - Window ID for click handlers
+ * @param {Set} expandedGroups - Set of group titles that should be expanded
+ * @returns {HTMLElement} - The group DOM element
+ */
+function createGroupElement(group, tabs, windowId, expandedGroups = new Set()) {
+  const groupEl = document.createElement('div');
+  groupEl.className = 'group-item';
+
+  const groupTitle = group.title || '(Untitled Group)';
+
+  // Restore expansion state
+  if (expandedGroups.has(groupTitle)) {
+    groupEl.classList.add('expanded');
+  }
+
+  const groupHeader = document.createElement('div');
+  groupHeader.className = 'group-header';
+
+  const gExpandIcon = document.createElement('span');
+  gExpandIcon.className = 'expand-icon';
+  gExpandIcon.textContent = '▶';
+
+  const gDot = document.createElement('div');
+  gDot.className = 'group-dot';
+  gDot.style.backgroundColor = mapColor(group.color);
+
+  const gTitle = document.createElement('span');
+  gTitle.textContent = groupTitle;
+
+  groupHeader.appendChild(gExpandIcon);
+  groupHeader.appendChild(gDot);
+  groupHeader.appendChild(gTitle);
+
+  // Click to focus first tab in group
+  groupHeader.addEventListener('click', (e) => {
+    if (e.target === gExpandIcon) {
+      groupEl.classList.toggle('expanded');
+    } else {
+      const firstTab = tabs[0];
+      if (firstTab) {
+        chrome.windows.update(windowId, { focused: true });
+        chrome.tabs.update(firstTab.id, { active: true });
+      }
+    }
+  });
+
+  gExpandIcon.addEventListener('click', (e) => {
+    e.stopPropagation();
+    groupEl.classList.toggle('expanded');
+  });
+
+  const groupContent = document.createElement('div');
+  groupContent.className = 'content';
+
+  // Add tabs in this group
+  tabs.forEach(tab => {
+    const tabEl = createTabElement(tab, windowId);
+    groupContent.appendChild(tabEl);
+  });
+
+  groupEl.appendChild(groupHeader);
+  groupEl.appendChild(groupContent);
+
+  return groupEl;
 }

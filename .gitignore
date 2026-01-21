@@ -17,6 +17,9 @@
 .env.test.local
 .env.production.local
 
+# Claude Code local settings (contains secrets)
+.claude/settings.local.json
+
 # IDEs and editors
 .vscode/
 .idea/
