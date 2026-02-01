@@ -1,0 +1,5 @@
+---
+description: 'Multi-session learning companion that teaches testing progressively through 7 structured sessions with state persistence'
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL @bmad/tea/workflows/testarch/teach-me-testing/workflow.md, READ its entire contents and follow its directions exactly!
