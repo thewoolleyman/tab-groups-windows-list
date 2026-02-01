@@ -34,8 +34,8 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 - FR17: Engine can pass accumulated feedback as explicit context to subsequent `/implement` retries
 - FR18: Engine can receive a Beads issue ID and extract the workflow tag from its description
 - FR19: Engine can dispatch the appropriate workflow based on the extracted workflow tag
-- FR20: Engine can close a Beads issue upon successful workflow completion via `bd close`
-- FR21: Cron trigger can poll Beads for open issues with workflow tags ready for dispatch
+- FR20: Engine can close a Beads issue upon successful workflow completion via `bd close --reason`
+- FR21: Cron trigger can poll Beads for open issues with workflow tags ready for dispatch, excluding issues with active failure metadata
 - FR22: Cron trigger can execute dispatched workflows without manual intervention
 - FR23: Developer can convert BMAD stories to Beads issues via `/convert-stories-to-beads`
 - FR24: Converter can parse BMAD epic/story markdown and extract full story content
@@ -60,12 +60,15 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 - FR43: Runtime versions (Python, Node.js) are pinned in `mise.toml`
 - FR44: CI validates both Python and JS codebases in a unified pipeline
 - FR45: Developer can run all quality checks locally before pushing to CI
+- FR46: Finalize step (always_run) closes issues on success via `bd close --reason` or tags with structured failure metadata on failure via `bd update --notes`
+- FR47: Cron trigger dispatch guard skips issues with active failure metadata (structured `ADWS_FAILED` notes)
+- FR48: Triage workflow reviews failed issues with tiered escalation: Tier 1 (automatic retry with exponential backoff), Tier 2 (AI triage agent analyzes and adjusts), Tier 3 (human escalation only after automated recovery is exhausted)
 
 ### NonFunctional Requirements
 
 - NFR1: Engine must handle step failures gracefully via ROP -- no uncaught exceptions, no partial state corruption
-- NFR2: Failed workflows must leave Beads issues in a recoverable state (open, with failure context logged)
-- NFR3: `always_run` steps (e.g., `bd close`) must execute even after upstream failures
+- NFR2: Failed workflows must leave Beads issues in a recoverable state: open with structured failure metadata (`ADWS_FAILED` notes including attempt count, error classification, and failure summary). Issues remain dispatchable only after automated triage clears them for retry.
+- NFR3: `always_run` steps (e.g., `finalize`) must execute even after upstream failures
 - NFR4: Hook failures (observability, safety) must not block the operation they're observing -- fail-open with stderr logging
 - NFR5: `uv sync --frozen` must succeed on any machine with the correct Python version -- zero network-dependent resolution
 - NFR6: `npm ci` must produce identical `node_modules/` on any machine with the correct Node.js version
@@ -83,6 +86,8 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 - NFR18: ADWS must interact with Claude exclusively via `claude-agent-sdk` Python API -- no subprocess CLI wrapping
 - NFR19: ADWS must never read BMAD files directly during execution workflows -- the Beads issue description is the only contract
 - NFR20: All hook entry points (CLI shims in `.claude/hooks/`) must delegate to shared `adws/` Python modules -- no standalone logic in hook scripts
+- NFR21: The cron trigger must never dispatch an issue with active failure metadata. A separate triage workflow governs retry eligibility, clearing failure metadata only after appropriate cooldown or AI triage analysis.
+- NFR22: All workflow agent system prompts must be designed for autonomous operation -- agents must not request human input during execution. Failures propagate as structured data for automated recovery, not as questions for the human.
 
 ### Additional Requirements
 
@@ -124,7 +129,7 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 - `write_failing_tests` step (RED phase -- test agent)
 - `verify_tests_fail` step (shell gate -- validates expected failure types)
 - `refactor` step (REFACTOR phase -- cleanup agent)
-- TDD workflow: RED → verify fail → GREEN → verify pass → REFACTOR → verify pass → close
+- TDD workflow: RED → verify fail → GREEN → verify pass → REFACTOR → verify pass → finalize (close on success, tag on failure)
 - ATDD integration with BMAD TEA workflow for story-level test scaffolds
 
 **From Architecture -- Implementation Patterns (Step 5):**
@@ -169,8 +174,8 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 | FR17 | Epic 3 | Pass accumulated feedback to /implement retries |
 | FR18 | Epic 7 | Receive Beads issue ID, extract workflow tag |
 | FR19 | Epic 7 | Dispatch workflow by extracted tag |
-| FR20 | Epic 7 | Close Beads issue on successful completion |
-| FR21 | Epic 7 | Cron trigger polls for open issues |
+| FR20 | Epic 7 | Close Beads issue on successful completion via `bd close --reason` |
+| FR21 | Epic 7 | Cron trigger polls for open issues, excluding those with failure metadata |
 | FR22 | Epic 7 | Execute dispatched workflows unattended |
 | FR23 | Epic 6 | /convert-stories-to-beads command |
 | FR24 | Epic 6 | Parse BMAD epic/story markdown |
@@ -195,14 +200,17 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 | FR43 | Epic 1 | Runtime versions pinned in mise.toml |
 | FR44 | Epic 1 | CI validates both Python and JS codebases |
 | FR45 | Epic 1 | Developer can run all quality checks locally |
+| FR46 | Epics 4, 7 | Finalize step: close on success, tag failure metadata on failure |
+| FR47 | Epic 7 | Cron trigger dispatch guard skips issues with failure metadata |
+| FR48 | Epic 7 | Triage workflow with tiered escalation (auto-retry, AI triage, human) |
 
 ### Standing NFR Constraints
 
 | NFR | Description | Applies To |
 |-----|-------------|------------|
 | NFR1 | Graceful failure via ROP, no uncaught exceptions | Epics 2, 3, 4, 7 |
-| NFR2 | Failed workflows leave Beads issues recoverable | Epics 4, 7 |
-| NFR3 | always_run steps execute after upstream failures | Epics 2, 4, 7 |
+| NFR2 | Failed workflows leave Beads issues open with structured failure metadata | Epics 4, 7 |
+| NFR3 | always_run (finalize) steps execute after upstream failures | Epics 2, 4, 7 |
 | NFR4 | Hook failures fail-open with stderr logging | Epic 5 |
 | NFR5 | uv sync --frozen zero network resolution | Epic 1 |
 | NFR6 | npm ci identical node_modules | Epic 1 |
@@ -220,6 +228,8 @@ This document provides the complete epic and story breakdown for tab-groups-wind
 | NFR18 | Claude via SDK API only, no subprocess CLI | Epics 2, 4 |
 | NFR19 | Never read BMAD during execution workflows | Epics 4, 7 |
 | NFR20 | Hook shims delegate to shared adws/ modules | Epic 5 |
+| NFR21 | Cron trigger never dispatches issues with active failure metadata | Epic 7 |
+| NFR22 | Workflow agents operate autonomously -- no human input during execution | **All epics** (standing gate) |
 | EUT* | Every io_ops SDK function must have a corresponding Enemy Unit Test (derived from NFR18 + Decision 1) | Epics 2, 4 |
 
 ## Epic List
@@ -755,14 +765,19 @@ So that simple tasks bypass full TDD ceremony while still meeting the 100% cover
 
 **Given** the implement_close workflow
 **When** it executes
-**Then** it runs: implement (SDK step) -> verify_tests_pass -> bd close (always_run)
+**Then** it runs: implement (SDK step) -> verify_tests_pass -> finalize (always_run)
 **And** there is no write_failing_tests or verify_tests_fail phase
-**And** bd close executes via `bd` CLI (NFR17) even if implement fails (NFR3)
+**And** finalize executes via `bd` CLI (NFR17) even if implement fails (NFR3)
 
-**Given** the implement step fails
-**When** the engine processes the failure
-**Then** the Beads issue remains open in a recoverable state (NFR2)
-**And** bd close still runs as always_run step
+**Given** the implement step succeeds and tests pass
+**When** the finalize step runs
+**Then** it calls `bd close <id> --reason "Completed successfully"` (FR20, FR46)
+
+**Given** the implement step fails after retries are exhausted
+**When** the finalize step runs (always_run, NFR3)
+**Then** the Beads issue remains open with structured failure metadata via `bd update --notes "ADWS_FAILED|..."` (NFR2, FR46)
+**And** the failure metadata includes attempt count, error classification, step name, and failure summary
+**And** the issue is NOT closed -- it remains open for automated triage (NFR21)
 
 **Given** /build command code
 **When** I run tests
@@ -860,8 +875,8 @@ So that every implementation follows RED -> GREEN -> REFACTOR with automated ver
 
 **Given** all TDD steps from Stories 4.5-4.7 and the verify pipeline from Epic 3
 **When** I inspect the `implement_verify_close` workflow definition
-**Then** it composes: write_failing_tests -> verify_tests_fail -> implement -> verify_tests_pass -> refactor -> verify_tests_pass -> bd close
-**And** bd close is marked `always_run=True` (NFR3)
+**Then** it composes: write_failing_tests -> verify_tests_fail -> implement -> verify_tests_pass -> refactor -> verify_tests_pass -> finalize
+**And** finalize is marked `always_run=True` (NFR3)
 **And** the workflow is declarative data, not imperative code
 
 **Given** the /implement command is invoked with a Beads issue
@@ -872,18 +887,19 @@ So that every implementation follows RED -> GREEN -> REFACTOR with automated ver
 
 **Given** the full TDD workflow executes successfully
 **When** all phases complete (RED -> verify fail -> GREEN -> verify pass -> REFACTOR -> verify pass)
-**Then** `bd close` closes the Beads issue
+**Then** finalize calls `bd close <id> --reason "Completed successfully"` (FR20, FR46)
 **And** the workflow result indicates success
 
 **Given** any phase fails after retries are exhausted
-**When** the engine processes the failure
-**Then** the Beads issue remains open in a recoverable state with failure context logged (NFR2)
-**And** bd close still executes as always_run (NFR3)
-**And** accumulated feedback is preserved for manual retry
+**When** finalize runs (always_run, NFR3)
+**Then** the Beads issue remains open with structured failure metadata via `bd update --notes "ADWS_FAILED|..."` (NFR2, FR46)
+**And** failure metadata includes attempt count, error classification, step name, and failure summary
+**And** the issue is NOT closed -- it remains open for automated triage (NFR21)
+**And** accumulated feedback is preserved in the failure metadata for triage recovery
 
 **Given** implement_verify_close workflow code
 **When** I run tests
-**Then** tests cover: full success path, RED failure (bad tests), GREEN failure (implementation fails), REFACTOR failure, always_run bd close after failure
+**Then** tests cover: full success path (finalize closes), RED failure (bad tests), GREEN failure (implementation fails), REFACTOR failure, finalize tags failure metadata on failure
 **And** 100% coverage is maintained (NFR9)
 
 ---
@@ -1114,13 +1130,13 @@ So that planning artifacts stay linked to execution issues and I can convert sto
 
 ---
 
-### Epic 7: Automated Dispatch & Cron Trigger
+### Epic 7: Automated Dispatch, Cron Trigger & Self-Healing Triage
 
-System autonomously polls Beads for open issues with workflow tags, dispatches the appropriate workflow, executes it, and closes the issue on success -- zero manual intervention.
+System autonomously polls Beads for open issues with workflow tags, dispatches the appropriate workflow, executes it, closes the issue on success, and handles failures through tiered automated triage -- zero manual intervention except for truly unresolvable problems (Zero Touch Engineering Principle).
 
-**FRs covered:** FR18, FR19, FR20, FR21, FR22
+**FRs covered:** FR18, FR19, FR20, FR21, FR22, FR46, FR47, FR48
 
-**Notes:** Capstone. Dispatch mechanism: `load_workflow()` pure lookup + policy enforcement in `adw_dispatch.py` per Decision 5. `dispatchable` flag on Workflow dataclass gates which workflows the cron trigger can invoke. Interacts with Beads exclusively via `bd` CLI (NFR17). Must never read BMAD files during execution (NFR19).
+**Notes:** Capstone. Dispatch mechanism: `load_workflow()` pure lookup + policy enforcement in `adw_dispatch.py` per Decision 5. `dispatchable` flag on Workflow dataclass gates which workflows the cron trigger can invoke. Interacts with Beads exclusively via `bd` CLI (NFR17). Must never read BMAD files during execution (NFR19). Implements Zero Touch Engineering: finalize step (FR46) handles success/failure branching, dispatch guard (FR47) prevents infinite retry loops, and triage workflow (FR48) provides tiered self-healing recovery.
 
 #### Story 7.1: Issue Tag Extraction & Workflow Dispatch
 
@@ -1171,19 +1187,19 @@ So that completed work is automatically tracked without manual intervention.
 **And** context propagation, retry logic, and always_run steps function as defined in Epic 2
 
 **Given** workflow execution succeeds
-**When** the engine processes the result
-**Then** `bd close` is called via io_ops to close the Beads issue (FR20, NFR17)
+**When** the finalize step runs (always_run, NFR3)
+**Then** `bd close <id> --reason "Completed successfully"` is called via io_ops (FR20, FR46, NFR17)
 **And** the closure includes a success summary in the close reason
 
 **Given** workflow execution fails after retries are exhausted
-**When** the engine processes the failure
-**Then** the Beads issue remains open in a recoverable state (NFR2)
-**And** failure context is logged to the issue (step name, error details, attempt count)
-**And** `bd close` still executes as `always_run` but with failure context rather than success (NFR3)
+**When** the finalize step runs (always_run, NFR3)
+**Then** the Beads issue remains open with structured failure metadata via `bd update --notes "ADWS_FAILED|..."` (NFR2, FR46)
+**And** failure metadata includes: attempt count, error classification, step name, failure summary
+**And** the issue is NOT closed -- it remains open for automated triage (NFR21)
 
-**Given** all execution and closure code
+**Given** all execution and finalize code
 **When** I run tests
-**Then** tests cover: successful execution and close, failure with recoverable state, always_run after failure
+**Then** tests cover: successful execution and close, failure with structured metadata tagging, finalize always runs in both paths
 **And** 100% coverage is maintained (NFR9)
 
 #### Story 7.3: Cron Trigger - Polling & Autonomous Execution
@@ -1198,13 +1214,14 @@ So that routine work is processed without manual intervention.
 **When** it polls Beads
 **Then** it calls `bd list --status=open` via io_ops to find open issues (FR21, NFR17)
 **And** it filters issues to those containing `{workflow_name}` tags matching dispatchable workflows
+**And** it applies the dispatch guard: issues with `ADWS_FAILED` or `needs_human` metadata in notes are excluded from dispatch (FR47, NFR21)
 
-**Given** one or more ready issues are found
+**Given** one or more ready issues are found (passing dispatch guard)
 **When** the trigger processes them
 **Then** it dispatches and executes each workflow without manual intervention (FR22)
 **And** it uses the dispatch mechanism from Story 7.1 and execution from Story 7.2
 
-**Given** no ready issues are found
+**Given** no ready issues are found (all filtered by dispatch guard or no open issues)
 **When** the trigger completes a poll cycle
 **Then** it sleeps until the next poll interval and re-polls
 
@@ -1218,9 +1235,58 @@ So that routine work is processed without manual intervention.
 **Then** issues are processed sequentially (one at a time) to avoid resource contention
 **And** a failure on one issue does not prevent processing of subsequent issues
 
+**Given** an issue has `ADWS_FAILED` or `needs_human` metadata in its notes
+**When** the dispatch guard evaluates it
+**Then** the issue is skipped -- it will not be dispatched until triage clears the failure metadata or a human resolves the `needs_human` tag (NFR21)
+
 **Given** all cron trigger code
 **When** I run tests
-**Then** tests cover: successful poll and dispatch, no ready issues, poll error recovery, multi-issue sequential processing, single issue failure isolation
+**Then** tests cover: successful poll and dispatch, no ready issues, dispatch guard filtering, poll error recovery, multi-issue sequential processing, single issue failure isolation
+**And** 100% coverage is maintained (NFR9)
+
+#### Story 7.4: Triage Workflow - Self-Healing Failure Recovery
+
+As an ADWS developer,
+I want a triage workflow that automatically reviews failed issues and either retries them or escalates to human review,
+So that the system self-heals from routine failures without human intervention (Zero Touch Engineering Principle).
+
+**Acceptance Criteria:**
+
+**Given** one or more open issues have `ADWS_FAILED` metadata in their notes
+**When** the triage workflow runs
+**Then** it parses the structured failure metadata: `ADWS_FAILED|attempt=N|last_failure=TIMESTAMP|error_class=CLASS|step=STEP|summary=TEXT` (FR48)
+**And** it classifies each failure into an escalation tier
+
+**Given** a failed issue classified as Tier 1 (transient/retryable: `sdk_error`, `timeout`, `test_failure` with attempt < 3)
+**When** the triage workflow evaluates it
+**Then** it checks exponential backoff cooldown (30min, 2hr, 8hr based on attempt count)
+**And** if cooldown has elapsed, it clears the `ADWS_FAILED` metadata via `bd update --notes`
+**And** the issue re-enters the dispatch pool on the next cron poll cycle
+**And** no human involvement is required
+
+**Given** a failed issue classified as Tier 2 (repeated failure: attempt >= 3, error class is classifiable)
+**When** the triage workflow evaluates it
+**Then** it invokes an AI triage agent via fresh SDK call to analyze the accumulated failure context
+**And** the triage agent can: adjust workflow parameters, simplify the task scope, or split the issue into smaller sub-issues via `bd create`
+**And** if the triage agent creates sub-issues, it closes the original with `bd close --reason "Split into sub-issues: <ids>"`
+**And** if the triage agent adjusts parameters, it clears the failure metadata and the issue re-enters dispatch
+**And** no human involvement is required
+
+**Given** a failed issue classified as Tier 3 (unresolvable: Tier 2 triage failed, or `unknown` error class)
+**When** the triage workflow evaluates it
+**Then** it tags the issue with `needs_human` metadata via `bd update --notes`
+**And** this is the ONLY path that requires human attention
+**And** the issue remains open but is excluded from both dispatch and automated triage until a human intervenes
+
+**Given** the triage workflow runs periodically
+**When** it processes the failed issue queue
+**Then** issues are evaluated in order of oldest failure first
+**And** each issue is processed independently -- a triage failure on one issue does not affect others
+**And** triage workflow interacts with Beads exclusively via `bd` CLI (NFR17)
+
+**Given** all triage workflow code
+**When** I run tests
+**Then** tests cover: Tier 1 cooldown retry, Tier 1 cooldown not yet elapsed, Tier 2 AI triage with adjustment, Tier 2 AI triage with split, Tier 3 human escalation, metadata parsing, multiple issues in queue
 **And** 100% coverage is maintained (NFR9)
 
 ---
@@ -1232,11 +1298,13 @@ So that routine work is processed without manual intervention.
 | 1: Foundation | FR41-45 | 5 | None | Base |
 | 2: Engine & Types | FR1-11 | 11 | Epic 1 | Track A |
 | 3: Verify Pipeline | FR12-17 | 6 | Epics 1+2 | Track A |
-| 4: Commands & TDD | FR28-32 | 5 | Epics 1+2+3 | Track A |
+| 4: Commands & TDD | FR28-32, FR46 | 6 | Epics 1+2+3 | Track A |
 | 5: Hooks | FR33-40 | 8 | Epic 1 | Track B |
 | 6: Converter | FR23-27 | 5 | Epic 1 | Track B |
-| 7: Dispatch | FR18-22 | 5 | Epics 1+2+3+4 | Track A |
-| **Total** | | **45** | | |
+| 7: Dispatch & Triage | FR18-22, FR46-48 | 8 | Epics 1+2+3+4 | Track A |
+| **Total** | | **48** | | |
 
 **Track A** (Core Pipeline): 1 -> 2 -> 3 -> 4 -> 7
 **Track B** (Parallel): 1 -> {5, 6} *(implementable alongside Track A epics)*
+
+**Note:** FR46 (finalize step) appears in both Epic 4 and Epic 7 -- Epic 4 implements the finalize step logic, Epic 7 uses it in dispatch workflows and adds the triage layer.

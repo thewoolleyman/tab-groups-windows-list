@@ -38,6 +38,23 @@ Both layers co-evolve indefinitely. The agentic layer modifies the application l
 - **Complexity:** Medium
 - **Project Context:** Brownfield (adding agentic layer to existing Chrome extension project)
 
+## Zero Touch Engineering Principle
+
+**CORE GUIDING PRINCIPLE:** The agentic system operates autonomously. The human reviews successful outcomes and resolves only problems that AI agents cannot resolve after exhausting automated recovery. All workflows, dispatch logic, failure handling, and agent prompts must be designed to minimize human intervention.
+
+**Human involvement is limited to:**
+- Reviewing successfully completed work (code review, acceptance)
+- Resolving problems that AI agents have failed to solve after tiered automated recovery
+- Strategic decisions (planning, prioritization, architecture changes)
+
+**Human is NOT involved in:**
+- Routine workflow dispatch or monitoring
+- Transient failure recovery (automatic retry with backoff)
+- Failure triage for classifiable error patterns (AI triage agent handles this)
+- Re-opening or re-dispatching failed issues (automated triage handles this)
+
+This principle must be reflected in all workflow designs, agent system prompts, dispatch logic, and documentation.
+
 ## Success Criteria
 
 ### User Success
@@ -256,9 +273,15 @@ ROP types (`IOResult`, `PipelineError`, `bind`, `flow`) are Tier 2 internals -- 
 
 - FR18: Engine can receive a Beads issue ID and extract the workflow tag from its description
 - FR19: Engine can dispatch the appropriate workflow based on the extracted workflow tag
-- FR20: Engine can close a Beads issue upon successful workflow completion via `bd close`
-- FR21: Cron trigger can poll Beads for open issues with workflow tags ready for dispatch
+- FR20: Engine can close a Beads issue upon successful workflow completion via `bd close --reason`
+- FR21: Cron trigger can poll Beads for open issues with workflow tags ready for dispatch, excluding issues with active failure metadata
 - FR22: Cron trigger can execute dispatched workflows without manual intervention
+
+### Autonomous Failure Recovery
+
+- FR46: Finalize step (always_run) closes issues on success via `bd close --reason` or tags with structured failure metadata on failure via `bd update --notes`
+- FR47: Cron trigger dispatch guard skips issues with active failure metadata (structured `ADWS_FAILED` notes)
+- FR48: Triage workflow reviews failed issues with tiered escalation: Tier 1 (automatic retry with exponential backoff), Tier 2 (AI triage agent analyzes and adjusts), Tier 3 (human escalation only after automated recovery is exhausted)
 
 ### BMAD-to-Beads Bridge
 
@@ -303,8 +326,8 @@ ROP types (`IOResult`, `PipelineError`, `bind`, `flow`) are Tier 2 internals -- 
 ### Reliability
 
 - NFR1: Engine must handle step failures gracefully via ROP -- no uncaught exceptions, no partial state corruption
-- NFR2: Failed workflows must leave Beads issues in a recoverable state (open, with failure context logged)
-- NFR3: `always_run` steps (e.g., `bd close`) must execute even after upstream failures
+- NFR2: Failed workflows must leave Beads issues in a recoverable state: open with structured failure metadata (`ADWS_FAILED` notes including attempt count, error classification, and failure summary). Issues remain dispatchable only after automated triage clears them for retry.
+- NFR3: `always_run` steps (e.g., `finalize`) must execute even after upstream failures
 - NFR4: Hook failures (observability, safety) must not block the operation they're observing -- fail-open with stderr logging
 
 ### Reproducibility
@@ -334,3 +357,8 @@ ROP types (`IOResult`, `PipelineError`, `bind`, `flow`) are Tier 2 internals -- 
 - NFR18: ADWS must interact with Claude exclusively via `claude-agent-sdk` Python API -- no subprocess CLI wrapping
 - NFR19: ADWS must never read BMAD files directly -- the Beads issue description (containing the converted BMAD story) is the only contract
 - NFR20: All hook entry points (CLI shims in `.claude/hooks/`) must delegate to shared `adws/` Python modules -- no standalone logic in hook scripts
+
+### Autonomy
+
+- NFR21: The cron trigger must never dispatch an issue with active failure metadata. A separate triage workflow governs retry eligibility, clearing failure metadata only after appropriate cooldown or AI triage analysis.
+- NFR22: All workflow agent system prompts must be designed for autonomous operation -- agents must not request human input during execution. Failures propagate as structured data for automated recovery, not as questions for the human.
