@@ -1,5 +1,8 @@
 ---
-stepsCompleted: [1, 2, 3, 4, 5]
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
+lastStep: 8
+status: 'complete'
+completedAt: '2026-02-01'
 inputDocuments: ['_bmad-output/planning-artifacts/prd.md', '_bmad-output/brainstorming/brainstorming-session-2026-01-31.md', 'README.md', 'HANDOVER.md', 'AGENTS.md']
 workflowType: 'architecture'
 project_name: 'tab-groups-windows-list'
@@ -1103,3 +1106,331 @@ If the GREEN phase fails repeatedly (N retries with accumulated feedback), the `
 - `mypy --strict` catches type signature violations, return type mismatches
 - `pytest --cov-fail-under=100` catches missing tests
 - Code review catches structural violations (step creation checklist)
+
+## Project Structure & Boundaries
+
+### Requirements to Structure Mapping
+
+Mapping the 9 FR capability areas from the PRD to specific files and directories:
+
+| FR Category | Primary Location | Supporting Files |
+|---|---|---|
+| **Workflow Execution (FR1-6)** | `adws/adw_modules/engine/executor.py`, `combinators.py` | `engine/types.py` (WorkflowContext, Step, Workflow) |
+| **Workflow Definition (FR7-11)** | `adws/workflows/*.py` | `engine/types.py` (Tier 1 public API) |
+| **Quality Verification (FR12-17)** | Inline shell steps in `implement_verify_close.py` | `verify_tests_fail.py`, `verify_tests_pass` (shell steps) |
+| **Issue Integration (FR18-22)** | `adws/adw_dispatch.py`, `adw_trigger_cron.py` | `io_ops.py` (bd CLI calls), `workflows/__init__.py` (load_workflow) |
+| **BMAD-to-Beads Bridge (FR23-27)** | `adws/adw_modules/steps/parse_bmad_story.py`, `create_beads_issue.py`, `write_beads_id.py` | `adws/workflows/convert_stories_to_beads.py` |
+| **Commands (FR28-32)** | `.claude/commands/*.md` | Corresponding Python modules in `adws/` |
+| **Observability (FR33-36)** | `adws/adw_modules/steps/log_hook_event.py`, `build_context_bundle.py` | `.claude/hooks/` (CLI shims), `io_ops.py` (file writes) |
+| **Safety (FR37-40)** | `adws/adw_modules/steps/block_dangerous_command.py` | `.claude/hooks/` (CLI shim), `io_ops.py` (security log writes) |
+| **Dev Environment (FR41-45)** | `pyproject.toml`, `.mise.toml`, `uv.lock` | `.github/workflows/ci-cd.yml`, `CLAUDE.md` |
+
+### Architectural Boundaries
+
+**Four-Layer Pipeline Boundary (internal to ADWS):**
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Tier 1: Workflows (declarative, no ROP)            │
+│  adws/workflows/*.py                                │
+│  Workflow, Step dataclasses → engine                 │
+├─────────────────────────────────────────────────────┤
+│  Tier 2: Engine (ROP internals, hidden from Tier 1) │
+│  adws/adw_modules/engine/executor.py, combinators.py│
+│  flow(), bind(), IOResult chains                     │
+├─────────────────────────────────────────────────────┤
+│  Steps (pure logic + io_ops calls)                   │
+│  adws/adw_modules/steps/*.py                         │
+│  (WorkflowContext) → IOResult[PipelineError, ...]    │
+├─────────────────────────────────────────────────────┤
+│  I/O Boundary (single mock point)                    │
+│  adws/adw_modules/io_ops.py                          │
+│  SDK calls, file ops, subprocess, bd CLI             │
+└─────────────────────────────────────────────────────┘
+```
+
+Rules:
+- Tier 1 imports from `engine/types.py` only -- never sees `IOResult`, `flow`, or ROP internals
+- Steps import from `io_ops.py` only for I/O -- never `subprocess`, `open()`, `claude-agent-sdk`
+- `io_ops.py` is the ONLY file that imports `claude-agent-sdk` and `subprocess`
+- Engine imports steps but steps never import engine -- no circular dependencies
+
+**External System Boundaries (all through io_ops.py):**
+
+```
+                          ┌──────────────┐
+                          │  io_ops.py   │
+                          │  (boundary)  │
+                          └──────┬───────┘
+                 ┌───────────────┼───────────────┐
+                 ▼               ▼               ▼
+        ┌────────────┐  ┌────────────┐  ┌────────────┐
+        │ claude-     │  │ bd CLI     │  │ filesystem │
+        │ agent-sdk   │  │ (Beads)    │  │ (logs,     │
+        │             │  │            │  │  bundles,  │
+        │ AdwsRequest │  │ bd create  │  │  BMAD .md) │
+        │ → SDK types │  │ bd close   │  │            │
+        │ → AdwsResp  │  │ bd update  │  │            │
+        └────────────┘  └────────────┘  └────────────┘
+```
+
+Each external system has dedicated functions in `io_ops.py`. Steps never know which external system they're talking to -- they call an io_ops function and get back a domain type.
+
+**Test Boundary:**
+
+All tests mock at `adws.adw_modules.io_ops` -- this is the single mock point for the entire test suite. Enemy Unit Tests are the exception: they call io_ops functions for real, hitting the actual SDK. This boundary is enforced architecturally by the step pattern (steps never import I/O directly, so there is nothing else to mock).
+
+**One-Directional System Flow (BMAD → Beads → ADWS):**
+
+```
+BMAD (.md files)                    Beads (bd CLI)                     ADWS (engine)
+┌──────────────┐                    ┌──────────────┐                   ┌──────────────┐
+│ Epic/Story   │ /convert-stories   │ Beads Issue  │  adw_dispatch     │ Workflow     │
+│ markdown     │ ──────────────►    │ {workflow}   │  ──────────►      │ Execution    │
+│              │  to-beads          │ tag          │                   │              │
+└──────────────┘                    └──────┬───────┘                   └──────────────┘
+     ▲ beads_id                            │ ▲                              │
+     │ written back                        │ │ bd ready                     │
+     └─────────────────────────────────────┘ │ (polling)                    │
+                                             │                              │
+                                      ┌──────┴────────┐                    │
+                                      │ adw_trigger_   │                    │
+                                      │ cron.py        │                    │
+                                      │ (polls ready   │                    │
+                                      │  issues)       │                    │
+                                      └────────────────┘                    │
+                                             │ bd close                     │
+                                             └◄─────────────────────────────┘
+```
+
+- BMAD files are READ by `parse_bmad_story` step, WRITTEN by `write_beads_id` step
+- ADWS never reads BMAD files during workflow execution -- only during conversion
+- Beads issues are the contract between planning and execution
+- No reverse flow: ADWS never writes to BMAD (except beads_id tracking), Beads never triggers BMAD
+
+**Dual-Toolchain Boundary:**
+
+```
+┌───────────────────────────────────────────────┐
+│                 .mise.toml                     │
+│          (pins Python, Node.js, uv)            │
+├───────────────────┬───────────────────────────┤
+│  Python (uv)      │  JavaScript (npm)          │
+│  pyproject.toml   │  package.json              │
+│  uv.lock          │  package-lock.json         │
+│  adws/            │  popup.js, manifest.json   │
+│  CLAUDE.md        │  tests/ (Jest, Playwright) │
+│  .claude/hooks/   │                            │
+│  .claude/commands/ │                            │
+│  agents/          │                            │
+└───────────────────┴───────────────────────────┘
+```
+
+The two toolchains share: `.mise.toml` (runtime versions), `.github/workflows/ci-cd.yml` (CI), and `.gitignore`. Nothing else crosses the boundary.
+
+### Integration Points
+
+| Integration | Mechanism | Direction | io_ops Function |
+|---|---|---|---|
+| ADWS → Claude API | `claude-agent-sdk` `ClaudeSDKClient` | Outbound | `execute_sdk_call()` |
+| ADWS → Beads | `bd` CLI subprocess | Outbound | `run_beads_command()` |
+| ADWS → BMAD files | File read/write | Bidirectional* | `read_bmad_story()`*, `write_beads_id_to_bmad()`* |
+| ADWS → agents/ output | File append/write | **Write-only** | `write_hook_log()`, `write_security_log()`, `write_context_bundle()` |
+| CLI hooks → ADWS steps | stdin JSON → Python function | Inbound | Hook shims in `.claude/hooks/` |
+| SDK HookMatcher → ADWS steps | Callback → Python function | Inbound | HookMatcher registration in engine |
+| Cron → ADWS dispatch | `adw_trigger_cron.py` → `adw_dispatch.py` | Inbound | `poll_ready_issues()` |
+
+\* **Conversion workflow only.** `read_bmad_story()` and `write_beads_id_to_bmad()` are called exclusively by steps in `convert_stories_to_beads`. They are not available to execution workflows (`implement_verify_close`, `implement_close`). An agent implementing execution workflows should never call these functions.
+
+**Output-only boundary:** The `agents/` directory (`hook_logs/`, `context_bundles/`, `security_logs/`) is written to during workflow execution but never read from. The sole exception is `/load_bundle`, which reads from `context_bundles/` for manual session reload -- this is human-initiated, never automated. No workflow step reads from `agents/`.
+
+### Data Flow Through TDD Workflow
+
+```
+Story AC (from Beads issue description)
+    │
+    ▼
+[1] write_failing_tests (SDK step — test agent)
+    │ ctx.test_files = [new test paths]
+    ▼
+[2] verify_tests_fail (shell step)
+    │ Asserts: non-zero exit, valid failure types
+    ▼
+[3] implement (SDK step — implementation agent)
+    │ ctx.implementation_files = [new/modified paths]
+    ▼
+[4] verify_tests_pass (shell step)
+    │ Asserts: zero exit, 100% coverage
+    │ On failure: retry with ctx.feedback += [error details]
+    ▼
+[5] refactor (SDK step — refactor agent)
+    │ ctx.refactored_files = [modified paths]
+    ▼
+[6] verify_tests_pass (shell step)
+    │ Asserts: zero exit, 100% coverage still
+    ▼
+[7] bd close (shell step, always_run=True)
+    │ Closes Beads issue regardless of prior failures
+    ▼
+Done
+```
+
+**Note:** Field names in the data flow (`ctx.test_files`, `ctx.implementation_files`, `ctx.refactored_files`, `ctx.feedback`) are **illustrative**, showing what kind of data flows between steps. The exact `WorkflowContext` field names, types, and signatures are defined in the implementing story when `engine/types.py` is built. The architecture specifies the *pattern* (immutable context, steps produce updated context), not the field-level schema.
+
+Each step reads from and writes to `WorkflowContext`. The context accumulates state as it flows through the pipeline. On failure at any verification step, `with_verification` retries with accumulated feedback.
+
+## Architecture Validation Results
+
+### Coherence Validation
+
+**Decision Compatibility:**
+
+| Decision Pair | Compatible? | Notes |
+|---|---|---|
+| D1 (SDK wrapper) + D6 (TDD) | Yes | TDD phases test through the proxy; EUTs test real SDK. No conflict. |
+| D1 (SDK wrapper) + D3 (tool config) | Yes | mypy strict validates Pydantic models; ruff checks io_ops.py imports. |
+| D3 (tool config) + D4 (CI pipeline) | Yes | CI runs identical tools: `uv run pytest`, `uv run mypy`, `uv run ruff check`. |
+| D5 (dispatch registry) + D6 (TDD) | Yes | TDD workflow is dispatchable. Dispatch calls load_workflow, engine runs TDD phases. |
+| D2 (dependencies) + D4 (CI) | Yes | mise-action installs all runtimes; `uv sync --frozen` installs exact versions. |
+| D6 (TDD) + Step 5 (patterns) | Yes | RED/GREEN/REFACTOR phases follow step creation checklist and io_ops boundary. |
+
+**Version Compatibility:**
+
+| Package | Version | Python >=3.11 | Cross-compatible |
+|---|---|---|---|
+| `claude-agent-sdk` | 0.1.27 | Yes (requires >=3.10) | Yes |
+| `returns` | 0.26.0 | Yes | Yes (mypy plugin configured) |
+| `pydantic` | 2.12.5 | Yes | Yes |
+| `rich` | 14.3.1 | Yes | Yes |
+
+No version conflicts detected. All dependencies compatible with each other and Python 3.11.
+
+**Pattern Consistency:** Step 5 patterns (step structure, import ordering, ROP usage, naming) directly support the decisions from step 4. Step 6 boundaries enforce the patterns (all I/O through io_ops.py, no cross-boundary imports).
+
+**Structure Alignment:** Step 3 project tree matches step 6 boundaries. Every directory falls within exactly one boundary. No orphaned paths.
+
+### Requirements Coverage Validation
+
+**Functional Requirements (45 FRs):**
+
+| FR Category | FRs | Architecture Coverage | Status |
+|---|---|---|---|
+| Workflow Execution (FR1-6) | 6 | Engine executor, combinators, WorkflowContext, always_run, retry | Covered |
+| Workflow Definition (FR7-11) | 5 | Tier 1 API (Workflow/Step dataclasses), declarative composition | Covered |
+| Quality Verification (FR12-17) | 6 | Inline shell steps in implement_verify_close, with_verification combinator, accumulated feedback | Covered |
+| Issue Integration (FR18-22) | 5 | adw_dispatch.py, adw_trigger_cron.py, load_workflow(), bd CLI via io_ops | Covered |
+| BMAD-to-Beads Bridge (FR23-27) | 5 | Bridge steps (parse/create/write), convert_stories_to_beads workflow | Covered |
+| Commands (FR28-32) | 5 | .claude/commands/*.md + Python modules, command inventory table | Covered |
+| Observability (FR33-36) | 4 | log_hook_event, build_context_bundle steps, CLI hook shims | Covered* |
+| Safety (FR37-40) | 4 | block_dangerous_command step, security log writes, CLI hook shim | Covered* |
+| Dev Environment (FR41-45) | 5 | pyproject.toml, .mise.toml, uv.lock, CI pipeline, CLAUDE.md | Covered |
+
+\* **Naming discrepancy:** FR36 references `adws/observability/` and FR40 references shared safety code. The architecture places these as steps in `adws/adw_modules/steps/` (not separate directories), per user directive that all functionality flows through the four-layer pipeline. The functional requirement is fully met; only the path differs from the PRD's original language. Flag as PRD errata for Epics & Stories phase.
+
+**Non-Functional Requirements (20 NFRs):**
+
+| NFR Category | NFRs | Architecture Coverage | Status |
+|---|---|---|---|
+| Reliability (NFR1-4) | 4 | ROP error handling, always_run steps, fail-open hooks | Covered |
+| Reproducibility (NFR5-8) | 4 | uv.lock, npm ci, .mise.toml, identical CI/local environments | Covered |
+| Testability (NFR9-13) | 5 | 100% coverage, io_ops boundary, mypy strict, ruff ALL, Tier 1/2 separation | Covered |
+| Security (NFR14-16) | 3 | Regex patterns, audit logging, .gitignore | Covered |
+| Integration (NFR17-20) | 4 | bd CLI only, SDK only, no direct BMAD reads in execution, shared hook modules | Covered** |
+
+\** **NFR19 nuance:** "ADWS must never read BMAD files directly" -- the architecture has `read_bmad_story()` in io_ops.py for the conversion workflow. During execution workflows (`implement_verify_close`, `implement_close`), BMAD files are never accessed. The NFR is met; the conversion-only scope is enforced by the Step 6 integration points footnote.
+
+**Coverage: 45/45 FRs covered. 20/20 NFRs covered. Zero gaps.**
+
+### Implementation Readiness Validation
+
+**Decision Completeness:**
+- All 6 decisions documented with specific versions, code examples, and rationale
+- Every TBD from step 3 deferred checklist resolved in step 4 with cross-references
+- EUT documentation unambiguous after 4 rounds of correction
+- Tool config includes inline comments for non-Python developer
+
+**Structure Completeness:**
+- Full project directory tree with every file (step 3)
+- FR-to-structure mapping (step 6)
+- Every boundary diagrammed (step 6)
+- Integration points table with io_ops function names (step 6)
+
+**Pattern Completeness:**
+- Step creation checklist (6 mandatory items)
+- 8 mandatory agent rules
+- Code examples for every pattern (step structure, io_ops, workflows, TDD annotations, error classes)
+- Anti-patterns documented alongside correct patterns
+
+### Gap Analysis
+
+**Critical Gaps:** None.
+
+**Minor Gaps:**
+
+1. **Step 5 party mode review:** Step 5 (Implementation Patterns) was saved as draft without party mode review. The content is substantive and informed by all prior decisions, but hasn't had the adversarial scrutiny that steps 3, 4, and 6 received. Low risk -- the patterns are derived from the source project's established conventions.
+
+2. **FR36/FR40 PRD path mismatch:** The PRD references `adws/observability/` and separate safety code. The architecture correctly places these as steps, but the PRD language is now stale. This is a PRD errata task for the Epics & Stories phase, not an architecture gap.
+
+3. **WorkflowContext field-level schema:** Deliberately deferred (step 6 marks field names as illustrative). Defined during implementation when `engine/types.py` is built. Correct deferral, not a gap.
+
+4. **Cron trigger scheduling mechanism:** `adw_trigger_cron.py` polls `bd ready`, but the architecture intentionally does not specify how the polling is scheduled (system cron, CI scheduled workflow, manual invocation). This is an implementation detail for the story that builds the cron trigger (Phase 2). An implementing agent should not invent a scheduling mechanism without a story specifying it.
+
+5. **`implement_close` TDD exemption:** `implement_close` intentionally skips TDD phases (no `write_failing_tests`, no `verify_tests_fail`). It is the fast-track workflow for non-code changes (config tweaks, dependency bumps). If a change touches Python code, `--cov-fail-under=100` catches it regardless. The TDD mandate from Decision 6 applies to `implement_verify_close`; `implement_close` relies on coverage enforcement as the safety net.
+
+### Architecture Completeness Checklist
+
+**Requirements Analysis**
+- [x] Project context analyzed (step 2)
+- [x] Scale and complexity assessed (step 2)
+- [x] Technical constraints identified (step 2)
+- [x] Cross-cutting concerns mapped (step 2)
+
+**Architectural Decisions**
+- [x] 6 decisions documented with versions and code examples (step 4)
+- [x] Technology stack fully specified with exact pinned versions (steps 3, 4)
+- [x] Integration patterns defined through io_ops boundary (steps 4, 5, 6)
+- [x] TDD enforcement architecturally built into workflow engine (step 4, Decision 6)
+
+**Implementation Patterns**
+- [x] Naming conventions established with examples and anti-patterns (step 5)
+- [x] Structure patterns defined for steps, io_ops, workflows, tests (step 5)
+- [x] Communication patterns specified (WorkflowContext, error propagation) (step 5)
+- [x] Process patterns documented (step creation checklist, TDD annotations) (step 5)
+
+**Project Structure**
+- [x] Complete directory tree defined (step 3)
+- [x] Component boundaries diagrammed (step 6)
+- [x] Integration points mapped with io_ops functions (step 6)
+- [x] Requirements-to-structure mapping complete (step 6)
+
+### Architecture Readiness Assessment
+
+**Overall Status: READY FOR IMPLEMENTATION**
+
+**Confidence Level:** High
+
+**Key Strengths:**
+- Four-layer ROP pipeline gives clear separation of concerns with single mock point
+- TDD enforcement is architectural, not aspirational -- separate agents per phase with shell verification gates
+- Enemy Unit Tests catch real SDK changes with real API calls
+- Every decision was refined through multiple party mode rounds including adversarial review
+- Complete project structure mirrors proven source architecture
+
+**Areas for Future Enhancement:**
+- Step 5 party mode review (low priority -- patterns are well-established)
+- io_ops.py scaling decision (deferred to Phase 1 MVP completion when function count is known)
+- GREEN phase retry-and-split combinator (deferred to implementation patterns)
+
+### Implementation Handoff
+
+**Document Precedence:** This architecture document is the **single source of truth** for implementing agents. The PRD provides requirements, the brainstorming provides rationale, but this document is what agents follow. If there is ever a conflict between the PRD's language and the architecture's decisions (e.g., the PRD says `adws/observability/` but the architecture places it in `adws/adw_modules/steps/`), **the architecture wins**.
+
+**AI Agent Guidelines:**
+- Follow all architectural decisions exactly as documented in this file
+- Use implementation patterns from step 5 consistently across all modules
+- Respect the four-layer pipeline boundary -- steps never import I/O directly
+- Follow the step creation checklist for every new step (errors → io_ops → step → __init__ → tests → verify)
+- Enforce TDD: RED (tests fail for right reason) → GREEN (minimum code) → REFACTOR (tests still pass)
+- Refer to this document for all architectural questions before inventing solutions
+
+**First Implementation Priority:** Scaffold story (Phase 1 MVP) as defined in the Scaffold Story DoD (steps 3 + 4).
