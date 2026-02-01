@@ -14,7 +14,9 @@ bd sync               # Sync with git
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**Use `/land` to wrap up a work session.** This command automates the full landing sequence: stage, sync beads, commit, push, and verify clean state.
+
+If you need to land manually, complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
 **MANDATORY WORKFLOW:**
 
