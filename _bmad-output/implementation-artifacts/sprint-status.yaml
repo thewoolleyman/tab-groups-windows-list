@@ -95,7 +95,7 @@ development_status:
   # Epic 7: Automated Dispatch, Cron Trigger & Self-Healing Triage
   epic-7: in-progress
   7-1-issue-tag-extraction-and-workflow-dispatch: done
-  7-2-workflow-execution-and-issue-closure: backlog
+  7-2-workflow-execution-and-issue-closure: done
   7-3-cron-trigger-polling-and-autonomous-execution: backlog
   7-4-triage-workflow-self-healing-failure-recovery: backlog
   epic-7-retrospective: optional

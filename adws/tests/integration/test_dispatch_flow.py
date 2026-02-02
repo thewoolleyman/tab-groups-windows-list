@@ -1,7 +1,8 @@
-"""Integration tests for full dispatch flow (Story 7.1).
+"""Integration tests for full dispatch flow (Story 7.1 + 7.2).
 
 Tests the complete dispatch path: issue read -> tag extract
 -> workflow lookup -> dispatchable policy -> context build.
+Story 7.2: dispatch -> execute -> finalize integration.
 """
 from __future__ import annotations
 
@@ -10,6 +11,8 @@ from typing import TYPE_CHECKING
 from returns.io import IOFailure, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
+from adws.adw_modules.errors import PipelineError
+from adws.adw_modules.types import ShellResult, WorkflowContext
 from adws.workflows import WorkflowName
 
 if TYPE_CHECKING:
@@ -188,4 +191,267 @@ class TestDispatchFlowNFR19:
             "adws.adw_dispatch.io_ops.read_bmad_file",
         )
         dispatch_workflow("ISSUE-42")
+        mock_bmad.assert_not_called()
+
+
+class TestDispatchExecuteCloseFlow:
+    """Integration tests for dispatch-execute-close (Story 7.2)."""
+
+    def test_successful_dispatch_execute_close(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Full success: dispatch -> execute -> close issue."""
+        from adws.adw_dispatch import (  # noqa: PLC0415
+            dispatch_and_execute,
+        )
+
+        desc = (
+            "# Story\n\nAs a developer...\n\n"
+            "{implement_verify_close}"
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.read_issue_description",
+            return_value=IOSuccess(desc),
+        )
+        result_ctx = WorkflowContext(
+            inputs={
+                "issue_id": "ISSUE-42",
+                "issue_description": desc,
+                "workflow_tag": "implement_verify_close",
+            },
+            outputs={"result": "done"},
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.execute_command_workflow",
+            return_value=IOSuccess(result_ctx),
+        )
+        mock_close = mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_close",
+            return_value=IOSuccess(
+                ShellResult(
+                    return_code=0,
+                    stdout="closed",
+                    stderr="",
+                    command="bd close",
+                ),
+            ),
+        )
+        result = dispatch_and_execute("ISSUE-42")
+        assert isinstance(result, IOSuccess)
+        der = unsafe_perform_io(result.unwrap())
+        assert der.success is True
+        assert der.finalize_action == "closed"
+        assert (
+            der.workflow_executed
+            == WorkflowName.IMPLEMENT_VERIFY_CLOSE
+        )
+        mock_close.assert_called_once_with(
+            "ISSUE-42", "Completed successfully",
+        )
+
+    def test_dispatch_execute_failure_tags_issue(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Failure: dispatch -> execute fails -> tag issue."""
+        from adws.adw_dispatch import (  # noqa: PLC0415
+            dispatch_and_execute,
+        )
+
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.read_issue_description",
+            return_value=IOSuccess(
+                "Content\n\n{implement_close}",
+            ),
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.execute_command_workflow",
+            return_value=IOFailure(
+                PipelineError(
+                    step_name="implement",
+                    error_type="SdkCallError",
+                    message="SDK timeout",
+                ),
+            ),
+        )
+        mock_update = mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_update_notes",
+            return_value=IOSuccess(
+                ShellResult(
+                    return_code=0,
+                    stdout="updated",
+                    stderr="",
+                    command="bd update",
+                ),
+            ),
+        )
+        result = dispatch_and_execute("ISSUE-42")
+        assert isinstance(result, IOSuccess)
+        der = unsafe_perform_io(result.unwrap())
+        assert der.success is False
+        assert der.finalize_action == "tagged_failure"
+        # Verify ADWS_FAILED metadata was passed to correct issue
+        mock_update.assert_called_once()
+        issue_arg = mock_update.call_args[0][0]
+        notes_arg = mock_update.call_args[0][1]
+        assert issue_arg == "ISSUE-42"
+        assert notes_arg.startswith("ADWS_FAILED|")
+
+    def test_close_not_called_on_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """On failure, run_beads_close is NOT called."""
+        from adws.adw_dispatch import (  # noqa: PLC0415
+            dispatch_and_execute,
+        )
+
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.read_issue_description",
+            return_value=IOSuccess(
+                "Content\n\n{implement_verify_close}",
+            ),
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.execute_command_workflow",
+            return_value=IOFailure(
+                PipelineError(
+                    step_name="implement",
+                    error_type="SdkCallError",
+                    message="error",
+                ),
+            ),
+        )
+        mock_close = mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_close",
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_update_notes",
+            return_value=IOSuccess(
+                ShellResult(
+                    return_code=0,
+                    stdout="",
+                    stderr="",
+                    command="bd update",
+                ),
+            ),
+        )
+        dispatch_and_execute("ISSUE-42")
+        mock_close.assert_not_called()
+
+    def test_update_notes_not_called_on_success(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """On success, run_beads_update_notes is NOT called."""
+        from adws.adw_dispatch import (  # noqa: PLC0415
+            dispatch_and_execute,
+        )
+
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.read_issue_description",
+            return_value=IOSuccess(
+                "Content\n\n{implement_verify_close}",
+            ),
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.execute_command_workflow",
+            return_value=IOSuccess(
+                WorkflowContext(
+                    inputs={
+                        "issue_id": "ISSUE-42",
+                        "workflow_tag": "implement_verify_close",
+                    },
+                ),
+            ),
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_close",
+            return_value=IOSuccess(
+                ShellResult(
+                    return_code=0,
+                    stdout="",
+                    stderr="",
+                    command="bd close",
+                ),
+            ),
+        )
+        mock_update = mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_update_notes",
+        )
+        dispatch_and_execute("ISSUE-42")
+        mock_update.assert_not_called()
+
+    def test_dispatch_failure_no_execution_or_finalize(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Dispatch failure: no execute, no close, no update."""
+        from adws.adw_dispatch import (  # noqa: PLC0415
+            dispatch_and_execute,
+        )
+
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.read_issue_description",
+            return_value=IOSuccess(
+                "Content\n\n{totally_unknown}",
+            ),
+        )
+        mock_exec = mocker.patch(
+            "adws.adw_dispatch.io_ops.execute_command_workflow",
+        )
+        mock_close = mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_close",
+        )
+        mock_update = mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_update_notes",
+        )
+        result = dispatch_and_execute("ISSUE-42")
+        assert isinstance(result, IOFailure)
+        mock_exec.assert_not_called()
+        mock_close.assert_not_called()
+        mock_update.assert_not_called()
+
+    def test_full_flow_never_reads_bmad(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """dispatch_and_execute never reads BMAD files (NFR19)."""
+        from adws.adw_dispatch import (  # noqa: PLC0415
+            dispatch_and_execute,
+        )
+
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.read_issue_description",
+            return_value=IOSuccess(
+                "Content\n\n{implement_verify_close}",
+            ),
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.execute_command_workflow",
+            return_value=IOSuccess(
+                WorkflowContext(
+                    inputs={
+                        "issue_id": "ISSUE-42",
+                        "workflow_tag": "implement_verify_close",
+                    },
+                ),
+            ),
+        )
+        mocker.patch(
+            "adws.adw_dispatch.io_ops.run_beads_close",
+            return_value=IOSuccess(
+                ShellResult(
+                    return_code=0,
+                    stdout="",
+                    stderr="",
+                    command="bd close",
+                ),
+            ),
+        )
+        mock_bmad = mocker.patch(
+            "adws.adw_dispatch.io_ops.read_bmad_file",
+        )
+        dispatch_and_execute("ISSUE-42")
         mock_bmad.assert_not_called()
