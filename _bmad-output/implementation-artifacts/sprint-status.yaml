@@ -69,7 +69,7 @@ development_status:
   epic-4: in-progress
   4-1-command-pattern-md-entry-points-and-python-module-wiring: done
   4-2-verify-command-entry-point: done
-  4-3-prime-command-for-context-loading: backlog
+  4-3-prime-command-for-context-loading: done
   4-4-build-command-and-implement-close-workflow: backlog
   4-5-write-failing-tests-step-red-phase: backlog
   4-6-verify-tests-fail-step-red-gate: backlog

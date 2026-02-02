@@ -2,8 +2,8 @@
 
 Routes command names to their associated workflows via the
 command registry. Uses io_ops boundary for workflow loading
-and execution. The "verify" command routes to a specialized
-handler (Story 4.2).
+and execution. The "verify" and "prime" commands route to
+specialized handlers (Stories 4.2, 4.3).
 """
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ from typing import TYPE_CHECKING
 from returns.io import IOFailure, IOResult, IOSuccess
 
 from adws.adw_modules import io_ops
+from adws.adw_modules.commands.prime import (
+    PrimeContextResult,
+    run_prime_command,
+)
 from adws.adw_modules.commands.registry import (
     get_command,
     list_commands,
@@ -33,11 +37,11 @@ def run_command(
 ) -> IOResult[WorkflowContext, PipelineError]:
     """Dispatch a command by name.
 
-    The "verify" command routes to a specialized handler that
-    formats results. Other workflow-backed commands use the
-    generic workflow path. Non-workflow commands return an
-    IOFailure. Unknown commands return an IOFailure with
-    available names.
+    The "verify" and "prime" commands route to specialized
+    handlers. Other workflow-backed commands use the generic
+    workflow path. Non-workflow commands without specialized
+    handlers return IOFailure. Unknown commands return
+    IOFailure with available names.
     """
     spec = get_command(name)
     if spec is None:
@@ -59,6 +63,31 @@ def run_command(
             ),
         )
 
+    # Specialized handler for "verify" command
+    if spec.name == "verify":
+
+        def _wrap_vr(
+            vr: VerifyCommandResult,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            return IOSuccess(
+                ctx.merge_outputs({"verify_result": vr}),
+            )
+
+        return run_verify_command(ctx).bind(_wrap_vr)
+
+    # Specialized handler for "prime" command
+    if spec.name == "prime":
+
+        def _wrap_pr(
+            pr: PrimeContextResult,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            return IOSuccess(
+                ctx.merge_outputs({"prime_result": pr}),
+            )
+
+        return run_prime_command(ctx).bind(_wrap_pr)
+
+    # Non-workflow commands without specialized handlers
     if spec.workflow_name is None:
         return IOFailure(
             PipelineError(
@@ -71,18 +100,6 @@ def run_command(
                 context={"command_name": name},
             ),
         )
-
-    # Specialized handler for "verify" command
-    if spec.name == "verify":
-
-        def _wrap_vr(
-            vr: VerifyCommandResult,
-        ) -> IOResult[WorkflowContext, PipelineError]:
-            return IOSuccess(
-                ctx.merge_outputs({"verify_result": vr}),
-            )
-
-        return run_verify_command(ctx).bind(_wrap_vr)
 
     # Generic workflow path for other commands
     load_result = io_ops.load_command_workflow(

@@ -5,6 +5,7 @@ from returns.io import IOFailure, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
 from adws.adw_modules.commands.dispatch import run_command
+from adws.adw_modules.commands.prime import PrimeContextResult
 from adws.adw_modules.commands.verify import VerifyCommandResult
 from adws.adw_modules.engine.types import Workflow
 from adws.adw_modules.errors import PipelineError
@@ -106,21 +107,12 @@ def test_run_command_workflow_not_found(  # type: ignore[no-untyped-def]
 def test_run_command_no_workflow_returns_failure() -> None:
     """run_command for non-workflow command returns IOFailure."""
     ctx = WorkflowContext()
-    result = run_command("prime", ctx)
+    result = run_command("load_bundle", ctx)
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert isinstance(error, PipelineError)
     assert error.error_type == "NoWorkflowError"
-    assert "prime" in error.message
-
-
-def test_run_command_load_bundle_no_workflow() -> None:
-    """run_command for load_bundle (no workflow) returns IOFailure."""
-    ctx = WorkflowContext()
-    result = run_command("load_bundle", ctx)
-    assert isinstance(result, IOFailure)
-    error = unsafe_perform_io(result.failure())
-    assert error.error_type == "NoWorkflowError"
+    assert "load_bundle" in error.message
 
 
 def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
@@ -217,3 +209,125 @@ def test_dispatch_build_still_uses_generic_path(  # type: ignore[no-untyped-def]
     # Build returns the context directly (generic path)
     assert out is result_ctx
     mock_load.assert_called_once_with("implement_close")
+
+
+# --- Prime dispatch tests (Story 4.3) ---
+
+
+def test_dispatch_prime_uses_specialized_handler(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('prime') routes to run_prime_command."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.read_prime_file",
+        side_effect=[
+            IOSuccess("claude content"),
+            IOSuccess("arch content"),
+            IOSuccess("epics content"),
+        ],
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.get_directory_tree",
+        side_effect=[
+            IOSuccess("adws tree"),
+            IOSuccess("project tree"),
+        ],
+    )
+    ctx = WorkflowContext()
+    result = run_command("prime", ctx)
+    assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    assert isinstance(out, WorkflowContext)
+    pr = out.outputs.get("prime_result")
+    assert isinstance(pr, PrimeContextResult)
+    assert pr.success is True
+
+
+def test_dispatch_prime_failure_propagates(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('prime') propagates required file failure."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.read_prime_file",
+        side_effect=[
+            IOFailure(
+                PipelineError(
+                    step_name="io_ops.read_prime_file",
+                    error_type="FileNotFoundError",
+                    message="Not found: CLAUDE.md",
+                ),
+            ),
+        ],
+    )
+    ctx = WorkflowContext()
+    result = run_command("prime", ctx)
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "RequiredFileError"
+
+
+def test_dispatch_load_bundle_still_returns_no_workflow_error() -> None:
+    """load_bundle still returns NoWorkflowError (regression)."""
+    ctx = WorkflowContext()
+    result = run_command("load_bundle", ctx)
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "NoWorkflowError"
+    assert "load_bundle" in error.message
+
+
+def test_dispatch_verify_still_works(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """verify still routes to specialized handler (regression)."""
+    fake_wf = Workflow(
+        name="verify",
+        description="test",
+        steps=[],
+    )
+    result_ctx = WorkflowContext(
+        outputs={
+            "verify_jest": VerifyResult(
+                tool_name="jest", passed=True,
+            ),
+        },
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.execute_command_workflow",
+        return_value=IOSuccess(result_ctx),
+    )
+    ctx = WorkflowContext()
+    result = run_command("verify", ctx)
+    assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    vr = out.outputs.get("verify_result")
+    assert isinstance(vr, VerifyCommandResult)
+
+
+def test_dispatch_build_still_works(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """build still uses generic workflow path (regression)."""
+    fake_wf = Workflow(
+        name="implement_close",
+        description="test",
+        steps=[],
+    )
+    result_ctx = WorkflowContext(
+        outputs={"build_done": True},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.execute_command_workflow",
+        return_value=IOSuccess(result_ctx),
+    )
+    ctx = WorkflowContext()
+    result = run_command("build", ctx)
+    assert isinstance(result, IOSuccess)

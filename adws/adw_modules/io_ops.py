@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import time
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 
 from claude_agent_sdk import (
@@ -336,6 +337,131 @@ def run_ruff_check() -> IOResult[VerifyResult, PipelineError]:
         )
 
     return result.bind(_handle_result)
+
+
+# --- Prime command io_ops (Story 4.3) ---
+
+_EXCLUDED_DIRS: frozenset[str] = frozenset({
+    ".git",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "htmlcov",
+})
+
+
+def _find_project_root() -> _Path:
+    """Find project root by locating pyproject.toml.
+
+    Walks up from this file's directory until pyproject.toml
+    is found. Returns the directory containing it.
+    """
+    current = _Path(__file__).resolve().parent
+    while current != current.parent:
+        if (current / "pyproject.toml").exists():
+            return current
+        current = current.parent
+    return _Path(__file__).resolve().parent  # pragma: no cover
+
+
+def read_prime_file(
+    path: str,
+) -> IOResult[str, PipelineError]:
+    """Read a context file by relative path from project root.
+
+    Resolves the path relative to the project root and
+    delegates to read_file(). Returns IOResult, never raises.
+    """
+    root = _find_project_root()
+    absolute = root / path
+    return read_file(absolute)
+
+
+def get_directory_tree(
+    root: str,
+    *,
+    max_depth: int = 3,
+) -> IOResult[str, PipelineError]:
+    """Build a directory tree string for the given root.
+
+    Excludes common non-relevant directories. Returns a
+    formatted tree string. The root is resolved relative to
+    the project root.
+    """
+    project_root = _find_project_root()
+    target = project_root / root
+
+    if not target.is_dir():
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.get_directory_tree",
+                error_type="NotADirectoryError",
+                message=(
+                    f"Not a directory: {target}"
+                ),
+                context={"root": root},
+            ),
+        )
+
+    try:
+        lines = _build_tree_lines(target, max_depth, 0)
+    except OSError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.get_directory_tree",
+                error_type=type(exc).__name__,
+                message=(
+                    f"Error reading directory"
+                    f" {target}: {exc}"
+                ),
+                context={"root": root},
+            ),
+        )
+
+    return IOSuccess("\n".join(lines))
+
+
+def _build_tree_lines(
+    directory: _Path,
+    max_depth: int,
+    current_depth: int,
+) -> list[str]:
+    """Recursively build tree lines for a directory.
+
+    Private helper for get_directory_tree.
+    """
+    lines: list[str] = []
+    indent = "  " * current_depth
+
+    try:
+        entries = sorted(
+            e.name for e in directory.iterdir()
+        )
+    except OSError:
+        return lines
+
+    for entry_name in entries:
+        entry_path = directory / entry_name
+
+        if entry_path.is_dir():
+            if entry_name in _EXCLUDED_DIRS:
+                continue
+            lines.append(f"{indent}{entry_name}/")
+            if current_depth < max_depth - 1:
+                lines.extend(
+                    _build_tree_lines(
+                        entry_path,
+                        max_depth,
+                        current_depth + 1,
+                    ),
+                )
+        else:
+            lines.append(f"{indent}{entry_name}")
+
+    return lines
 
 
 # --- Command infrastructure io_ops (Story 4.1) ---

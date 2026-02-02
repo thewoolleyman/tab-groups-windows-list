@@ -20,12 +20,16 @@ from returns.unsafe import unsafe_perform_io
 from adws.adw_modules.engine.types import Workflow
 from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.io_ops import (
+    _build_tree_lines,
     _build_verify_result,
+    _find_project_root,
     check_sdk_import,
     execute_command_workflow,
     execute_sdk_call,
+    get_directory_tree,
     load_command_workflow,
     read_file,
+    read_prime_file,
     run_jest_tests,
     run_mypy_check,
     run_playwright_tests,
@@ -1000,3 +1004,243 @@ def test_execute_command_workflow_failure(mocker) -> None:  # type: ignore[no-un
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert error is err
+
+
+# --- _find_project_root tests (Story 4.3) ---
+
+
+def test_find_project_root_returns_directory() -> None:
+    """_find_project_root returns the directory with pyproject.toml."""
+    root = _find_project_root()
+    assert (root / "pyproject.toml").exists()
+
+
+def test_find_project_root_is_absolute() -> None:
+    """_find_project_root returns an absolute path."""
+    root = _find_project_root()
+    assert root.is_absolute()
+
+
+# --- read_prime_file tests (Story 4.3) ---
+
+
+def test_read_prime_file_success(tmp_path: Path) -> None:
+    """read_prime_file returns IOSuccess with file content."""
+    test_file = tmp_path / "test.md"
+    test_file.write_text("# Test content")
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_prime_file("test.md")
+    assert isinstance(result, IOSuccess)
+    content = unsafe_perform_io(result.unwrap())
+    assert content == "# Test content"
+
+
+def test_read_prime_file_not_found(tmp_path: Path) -> None:
+    """read_prime_file returns IOFailure for missing file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_prime_file("nonexistent.md")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "FileNotFoundError"
+
+
+def test_read_prime_file_permission_error(
+    tmp_path: Path,
+) -> None:
+    """read_prime_file returns IOFailure on permission error."""
+    test_file = tmp_path / "noperm.md"
+    test_file.write_text("secret")
+    test_file.chmod(0o000)
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_prime_file("noperm.md")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "PermissionError"
+    test_file.chmod(0o644)
+
+
+# --- get_directory_tree tests (Story 4.3) ---
+
+
+def test_get_directory_tree_success(tmp_path: Path) -> None:
+    """get_directory_tree returns tree string for valid dir."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").touch()
+    (tmp_path / "README.md").touch()
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = get_directory_tree("src", max_depth=2)
+    assert isinstance(result, IOSuccess)
+    tree = unsafe_perform_io(result.unwrap())
+    assert "main.py" in tree
+
+
+def test_get_directory_tree_excludes_hidden(
+    tmp_path: Path,
+) -> None:
+    """get_directory_tree excludes __pycache__ and .git dirs."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__pycache__").mkdir()
+    (tmp_path / "src" / ".git").mkdir()
+    (tmp_path / "src" / "main.py").touch()
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = get_directory_tree("src", max_depth=2)
+    assert isinstance(result, IOSuccess)
+    tree = unsafe_perform_io(result.unwrap())
+    assert "__pycache__" not in tree
+    assert ".git" not in tree
+    assert "main.py" in tree
+
+
+def test_get_directory_tree_invalid_directory(
+    tmp_path: Path,
+) -> None:
+    """get_directory_tree returns IOFailure for nonexistent dir."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = get_directory_tree("nonexistent")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "NotADirectoryError"
+
+
+def test_get_directory_tree_respects_max_depth(
+    tmp_path: Path,
+) -> None:
+    """get_directory_tree limits traversal to max_depth."""
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b").mkdir()
+    (tmp_path / "a" / "b" / "c").mkdir()
+    (tmp_path / "a" / "b" / "c" / "deep.py").touch()
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = get_directory_tree("a", max_depth=1)
+    assert isinstance(result, IOSuccess)
+    tree = unsafe_perform_io(result.unwrap())
+    # At max_depth=1, should show b/ but not recurse into it
+    assert "b/" in tree
+    assert "deep.py" not in tree
+
+
+def test_get_directory_tree_shows_nested_structure(
+    tmp_path: Path,
+) -> None:
+    """get_directory_tree shows nested files/dirs properly."""
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").touch()
+    (tmp_path / "pkg" / "sub").mkdir()
+    (tmp_path / "pkg" / "sub" / "mod.py").touch()
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = get_directory_tree("pkg", max_depth=3)
+    assert isinstance(result, IOSuccess)
+    tree = unsafe_perform_io(result.unwrap())
+    assert "__init__.py" in tree
+    assert "sub/" in tree
+    assert "mod.py" in tree
+
+
+def test_get_directory_tree_excludes_all_known_dirs(
+    tmp_path: Path,
+) -> None:
+    """get_directory_tree excludes all configured directories."""
+    excluded = [
+        ".git",
+        "__pycache__",
+        "node_modules",
+        ".venv",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        "htmlcov",
+    ]
+    (tmp_path / "src").mkdir()
+    for d in excluded:
+        (tmp_path / "src" / d).mkdir()
+    (tmp_path / "src" / "real.py").touch()
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = get_directory_tree("src", max_depth=2)
+    assert isinstance(result, IOSuccess)
+    tree = unsafe_perform_io(result.unwrap())
+    for d in excluded:
+        assert d not in tree
+    assert "real.py" in tree
+
+
+def test_get_directory_tree_os_error(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """get_directory_tree returns IOFailure on OSError."""
+    (tmp_path / "src").mkdir()
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch(
+            "adws.adw_modules.io_ops._build_tree_lines",
+            side_effect=OSError("disk error"),
+        )
+        result = get_directory_tree("src")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "OSError"
+
+
+def test_build_tree_lines_iterdir_os_error(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """_build_tree_lines returns empty on iterdir OSError."""
+    from pathlib import Path as PathCls  # noqa: PLC0415
+
+    target = PathCls(str(tmp_path))
+    mocker.patch.object(
+        PathCls, "iterdir",
+        side_effect=OSError("permission denied"),
+    )
+    result = _build_tree_lines(target, 3, 0)
+    assert result == []
