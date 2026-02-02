@@ -48,8 +48,8 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Pipeline Engine & Workflow Types
-  epic-2: backlog
-  2-1-error-types-and-workflowcontext: backlog
+  epic-2: in-progress
+  2-1-error-types-and-workflowcontext: ready-for-dev
   2-2-io-ops-sdk-client-and-enemy-unit-tests: backlog
   2-3-step-function-type-and-shell-command-execution: backlog
   2-4-engine-core-sequential-execution-and-error-handling: backlog
