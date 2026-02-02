@@ -30,6 +30,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from adws.adw_modules.engine.types import Workflow
+    from adws.adw_modules.types import WorkflowContext
+
 
 def read_file(path: Path) -> IOResult[str, PipelineError]:
     """Read file contents. Returns IOResult, never raises."""
@@ -333,3 +336,50 @@ def run_ruff_check() -> IOResult[VerifyResult, PipelineError]:
         )
 
     return result.bind(_handle_result)
+
+
+# --- Command infrastructure io_ops (Story 4.1) ---
+
+
+def load_command_workflow(
+    workflow_name: str,
+) -> IOResult[Workflow, PipelineError]:
+    """Load a workflow by name for command execution.
+
+    Returns IOSuccess(Workflow) or IOFailure(PipelineError)
+    if the workflow is not registered.
+    """
+    from adws.workflows import (  # noqa: PLC0415
+        load_workflow,
+    )
+
+    workflow = load_workflow(workflow_name)
+    if workflow is None:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.load_command_workflow",
+                error_type="WorkflowNotFoundError",
+                message=(
+                    f"Workflow '{workflow_name}'"
+                    f" is not registered"
+                ),
+                context={"workflow_name": workflow_name},
+            ),
+        )
+    return IOSuccess(workflow)
+
+
+def execute_command_workflow(
+    workflow: Workflow,
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Execute a workflow through the engine.
+
+    Delegates to run_workflow and returns the result
+    as-is (already an IOResult).
+    """
+    from adws.adw_modules.engine.executor import (  # noqa: PLC0415
+        run_workflow,
+    )
+
+    return run_workflow(workflow, ctx)

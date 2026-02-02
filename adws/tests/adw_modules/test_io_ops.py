@@ -17,11 +17,14 @@ from claude_agent_sdk import (
 from returns.io import IOFailure, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
+from adws.adw_modules.engine.types import Workflow
 from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.io_ops import (
     _build_verify_result,
     check_sdk_import,
+    execute_command_workflow,
     execute_sdk_call,
+    load_command_workflow,
     read_file,
     run_jest_tests,
     run_mypy_check,
@@ -35,6 +38,7 @@ from adws.adw_modules.types import (
     AdwsResponse,
     ShellResult,
     VerifyResult,
+    WorkflowContext,
 )
 
 if TYPE_CHECKING:
@@ -915,3 +919,84 @@ def test_run_ruff_check_filters_noise_lines(  # type: ignore[no-untyped-def]
     assert len(vr.errors) == 1
     assert "E501" in vr.errors[0]
     assert "warning" not in vr.errors[0]
+
+
+# --- load_command_workflow tests (Story 4.1) ---
+
+
+def test_load_command_workflow_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """load_command_workflow returns IOSuccess with Workflow."""
+    fake_wf = Workflow(
+        name="verify",
+        description="test",
+        steps=[],
+    )
+    mocker.patch(
+        "adws.workflows.load_workflow",
+        return_value=fake_wf,
+    )
+    result = load_command_workflow("verify")
+    assert isinstance(result, IOSuccess)
+    wf = unsafe_perform_io(result.unwrap())
+    assert wf is fake_wf
+
+
+def test_load_command_workflow_not_found(mocker) -> None:  # type: ignore[no-untyped-def]
+    """load_command_workflow returns IOFailure when not found."""
+    mocker.patch(
+        "adws.workflows.load_workflow",
+        return_value=None,
+    )
+    result = load_command_workflow("nonexistent")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "WorkflowNotFoundError"
+    assert "nonexistent" in error.message
+
+
+# --- execute_command_workflow tests (Story 4.1) ---
+
+
+def test_execute_command_workflow_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """execute_command_workflow returns IOSuccess with ctx."""
+    fake_wf = Workflow(
+        name="verify",
+        description="test",
+        steps=[],
+    )
+    ctx = WorkflowContext()
+    result_ctx = WorkflowContext(
+        outputs={"done": True},
+    )
+    mocker.patch(
+        "adws.adw_modules.engine.executor.run_workflow",
+        return_value=IOSuccess(result_ctx),
+    )
+    result = execute_command_workflow(fake_wf, ctx)
+    assert isinstance(result, IOSuccess)
+    out_ctx = unsafe_perform_io(result.unwrap())
+    assert out_ctx is result_ctx
+
+
+def test_execute_command_workflow_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """execute_command_workflow propagates IOFailure."""
+    fake_wf = Workflow(
+        name="verify",
+        description="test",
+        steps=[],
+    )
+    ctx = WorkflowContext()
+    err = PipelineError(
+        step_name="jest",
+        error_type="StepError",
+        message="jest failed",
+    )
+    mocker.patch(
+        "adws.adw_modules.engine.executor.run_workflow",
+        return_value=IOFailure(err),
+    )
+    result = execute_command_workflow(fake_wf, ctx)
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is err

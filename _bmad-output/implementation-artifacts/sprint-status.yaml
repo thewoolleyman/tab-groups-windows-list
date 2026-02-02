@@ -66,8 +66,8 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Developer Commands & TDD Workflow
-  epic-4: backlog
-  4-1-command-pattern-md-entry-points-and-python-module-wiring: backlog
+  epic-4: in-progress
+  4-1-command-pattern-md-entry-points-and-python-module-wiring: done
   4-2-verify-command-entry-point: backlog
   4-3-prime-command-for-context-loading: backlog
   4-4-build-command-and-implement-close-workflow: backlog
