@@ -1,7 +1,8 @@
 """Shared type definitions for ADWS pipeline."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+import json
+from dataclasses import asdict, dataclass, field, replace
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -9,6 +10,23 @@ from pydantic import BaseModel, ConfigDict
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
+
+
+@dataclass(frozen=True)
+class HookEvent:
+    """Structured hook event for JSONL logging (FR33)."""
+
+    timestamp: str
+    event_type: str
+    hook_name: str
+    session_id: str
+    payload: dict[str, object] = field(
+        default_factory=dict,
+    )
+
+    def to_jsonl(self) -> str:
+        """Serialize to single-line JSON for JSONL format."""
+        return json.dumps(asdict(self), separators=(",", ":"))
 
 
 @dataclass(frozen=True)

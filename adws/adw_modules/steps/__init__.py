@@ -11,6 +11,10 @@ from adws.adw_modules.steps.build_feedback_context import (
 from adws.adw_modules.steps.check_sdk_available import check_sdk_available
 from adws.adw_modules.steps.execute_shell_step import execute_shell_step
 from adws.adw_modules.steps.implement_step import implement_step
+from adws.adw_modules.steps.log_hook_event import (
+    log_hook_event,
+    log_hook_event_safe,
+)
 from adws.adw_modules.steps.refactor_step import refactor_step
 from adws.adw_modules.steps.run_jest_step import run_jest_step
 from adws.adw_modules.steps.run_mypy_step import run_mypy_step
@@ -30,6 +34,8 @@ __all__ = [
     "check_sdk_available",
     "execute_shell_step",
     "implement_step",
+    "log_hook_event",
+    "log_hook_event_safe",
     "refactor_step",
     "run_jest_step",
     "run_mypy_step",

@@ -78,8 +78,8 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Observability & Safety Hooks
-  epic-5: backlog
-  5-1-hook-event-logger-module-and-cli-sdk-wiring: backlog
+  epic-5: in-progress
+  5-1-hook-event-logger-module-and-cli-sdk-wiring: done
   5-2-file-tracker-and-context-bundles: backlog
   5-3-load-bundle-command: backlog
   5-4-dangerous-command-blocker-with-audit-logging: backlog

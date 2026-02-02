@@ -24,6 +24,8 @@ from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.steps import (
     check_sdk_available,
     execute_shell_step,
+    log_hook_event,
+    log_hook_event_safe,
     run_jest_step,
     run_mypy_step,
     run_playwright_step,
@@ -136,6 +138,22 @@ class TestResolveStepFunction:
         assert isinstance(result, IOSuccess)
         resolved_fn = unsafe_perform_io(result.unwrap())
         assert resolved_fn is run_ruff_step
+
+    def test_resolve_log_hook_event(self) -> None:
+        """log_hook_event is in the registry."""
+        result = _resolve_step_function("log_hook_event")
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is log_hook_event
+
+    def test_resolve_log_hook_event_safe(self) -> None:
+        """log_hook_event_safe is in the registry."""
+        result = _resolve_step_function(
+            "log_hook_event_safe",
+        )
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is log_hook_event_safe
 
 
 # --- Task 1: run_step tests ---

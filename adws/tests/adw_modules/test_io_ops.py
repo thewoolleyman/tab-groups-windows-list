@@ -23,6 +23,7 @@ from adws.adw_modules.io_ops import (
     _build_tree_lines,
     _build_verify_result,
     _find_project_root,
+    _sanitize_session_id,
     check_sdk_import,
     execute_command_workflow,
     execute_sdk_call,
@@ -37,6 +38,8 @@ from adws.adw_modules.io_ops import (
     run_ruff_check,
     run_shell_command,
     sleep_seconds,
+    write_hook_log,
+    write_stderr,
 )
 from adws.adw_modules.types import (
     AdwsRequest,
@@ -1517,3 +1520,219 @@ def test_run_beads_show_shell_safe(mocker) -> None:  # type: ignore[no-untyped-d
     cmd = mock_shell.call_args[0][0]
     assert "rm -rf" not in cmd.split("'")[0]
     assert "'" in cmd
+
+
+# --- write_hook_log tests (Story 5.1) ---
+
+
+def test_write_hook_log_success(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_hook_log appends event_json to session file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_hook_log(
+            "session-abc123",
+            '{"event":"test"}',
+        )
+    assert isinstance(result, IOSuccess)
+    assert unsafe_perform_io(result.unwrap()) is None
+    log_file = (
+        tmp_path / "agents" / "hook_logs"
+        / "session-abc123.jsonl"
+    )
+    assert log_file.exists()
+    content = log_file.read_text()
+    assert content == '{"event":"test"}\n'
+
+
+def test_write_hook_log_appends_to_existing(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_hook_log appends to existing session file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    log_dir = tmp_path / "agents" / "hook_logs"
+    log_dir.mkdir(parents=True)
+    log_file = log_dir / "sess-1.jsonl"
+    log_file.write_text('{"first":"entry"}\n')
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_hook_log(
+            "sess-1", '{"second":"entry"}',
+        )
+    assert isinstance(result, IOSuccess)
+    content = log_file.read_text()
+    assert content == (
+        '{"first":"entry"}\n{"second":"entry"}\n'
+    )
+
+
+def test_write_hook_log_creates_directory(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_hook_log creates agents/hook_logs/ if missing."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    log_dir = tmp_path / "agents" / "hook_logs"
+    assert not log_dir.exists()
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_hook_log(
+            "sess-new", '{"data":"val"}',
+        )
+    assert isinstance(result, IOSuccess)
+    assert log_dir.exists()
+
+
+def test_write_hook_log_permission_error(
+    mocker: Any,
+) -> None:
+    """write_hook_log returns IOFailure on PermissionError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    mock_path = mocker.MagicMock()
+    mock_path.__truediv__ = mocker.MagicMock(
+        return_value=mock_path,
+    )
+    mock_path.mkdir.side_effect = PermissionError(
+        "no permission",
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=mock_path,
+    ):
+        result = write_hook_log("sess-1", '{"a":"b"}')
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "HookLogWriteError"
+    assert error.step_name == "io_ops.write_hook_log"
+
+
+def test_write_hook_log_os_error_on_write(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_hook_log returns IOFailure on file write OSError."""
+    from pathlib import Path as PathCls  # noqa: PLC0415
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch.object(
+            PathCls, "open",
+            side_effect=OSError("disk full"),
+        )
+        result = write_hook_log("sess-1", '{"a":"b"}')
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "HookLogWriteError"
+    assert error.step_name == "io_ops.write_hook_log"
+    assert "disk full" in error.message
+
+
+# --- _sanitize_session_id tests (Story 5.1 review fix) ---
+
+
+def test_sanitize_session_id_normal() -> None:
+    """Normal session_id passes through unchanged."""
+    assert _sanitize_session_id("session-abc123") == (
+        "session-abc123"
+    )
+
+
+def test_sanitize_session_id_path_traversal() -> None:
+    """Path traversal attempt is stripped to final component."""
+    assert _sanitize_session_id(
+        "../../etc/passwd",
+    ) == "passwd"
+
+
+def test_sanitize_session_id_slash_prefix() -> None:
+    """Absolute path is stripped to final component."""
+    assert _sanitize_session_id(
+        "/var/data/malicious",
+    ) == "malicious"
+
+
+def test_sanitize_session_id_empty() -> None:
+    """Empty session_id becomes fallback name."""
+    assert _sanitize_session_id("") == (
+        "invalid-session"
+    )
+
+
+def test_sanitize_session_id_dot_only() -> None:
+    """Dot-only session_id becomes fallback name."""
+    assert _sanitize_session_id(".") == (
+        "invalid-session"
+    )
+    assert _sanitize_session_id("..") == (
+        "invalid-session"
+    )
+
+
+def test_write_hook_log_path_traversal_blocked(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_hook_log sanitizes traversal session_ids."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_hook_log(
+            "../../etc/passwd",
+            '{"event":"test"}',
+        )
+    assert isinstance(result, IOSuccess)
+    # File should be in hook_logs/, NOT traversing out
+    log_dir = tmp_path / "agents" / "hook_logs"
+    assert (log_dir / "passwd.jsonl").exists()
+    # Verify no file was written outside hook_logs
+    assert not (tmp_path / "etc").exists()
+
+
+# --- write_stderr tests (Story 5.1) ---
+
+
+def test_write_stderr_success(mocker: Any) -> None:
+    """write_stderr writes message to sys.stderr."""
+    mock_stderr = mocker.patch(
+        "adws.adw_modules.io_ops.sys.stderr",
+    )
+    result = write_stderr("error message\n")
+    assert isinstance(result, IOSuccess)
+    assert unsafe_perform_io(result.unwrap()) is None
+    mock_stderr.write.assert_called_once_with(
+        "error message\n",
+    )
+
+
+def test_write_stderr_os_error(mocker: Any) -> None:
+    """write_stderr returns IOFailure when stderr.write raises."""
+    mock_stderr = mocker.patch(
+        "adws.adw_modules.io_ops.sys.stderr",
+    )
+    mock_stderr.write.side_effect = OSError("broken pipe")
+    result = write_stderr("error message\n")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.step_name == "io_ops.write_stderr"
+    assert "broken pipe" in error.message

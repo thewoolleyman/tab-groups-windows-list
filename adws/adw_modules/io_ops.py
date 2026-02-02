@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING
@@ -627,3 +628,84 @@ def run_beads_update_notes(
         return IOSuccess(sr)
 
     return result.bind(_check_exit)
+
+
+# --- Hook event logging io_ops (Story 5.1) ---
+
+
+def _sanitize_session_id(session_id: str) -> str:
+    """Sanitize session_id to prevent path traversal.
+
+    Strips path separators and parent references so the
+    resulting filename stays within agents/hook_logs/.
+    """
+    from pathlib import PurePosixPath as _PurePath  # noqa: PLC0415
+
+    # Take only the final component, stripping any directory traversal
+    name = _PurePath(session_id).name
+    # Reject empty or dot-only names after sanitization
+    if not name or name in {".", ".."}:
+        name = "invalid-session"
+    return name
+
+
+def write_hook_log(
+    session_id: str,
+    event_json: str,
+) -> IOResult[None, PipelineError]:
+    """Append event JSONL to session-specific log file (FR33).
+
+    Creates agents/hook_logs/ directory if it does not
+    exist. Appends event_json + newline to the file named
+    <session_id>.jsonl. Returns IOSuccess(None) on success.
+    Sanitizes session_id to prevent path traversal.
+    """
+    try:
+        safe_id = _sanitize_session_id(session_id)
+        root = _find_project_root()
+        log_dir = root / "agents" / "hook_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"{safe_id}.jsonl"
+        with log_file.open("a") as f:
+            f.write(event_json + "\n")
+    except (PermissionError, OSError) as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_hook_log",
+                error_type="HookLogWriteError",
+                message=(
+                    f"Failed to write hook log"
+                    f" for session {session_id}:"
+                    f" {exc}"
+                ),
+                context={
+                    "session_id": session_id,
+                },
+            ),
+        )
+    return IOSuccess(None)
+
+
+def write_stderr(
+    message: str,
+) -> IOResult[None, PipelineError]:
+    """Write message to stderr (NFR4 fail-open logging).
+
+    Returns IOSuccess(None) or IOFailure on error.
+    """
+    try:
+        sys.stderr.write(message)
+    except OSError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_stderr",
+                error_type="StderrWriteError",
+                message=(
+                    f"Failed to write to stderr: {exc}"
+                ),
+                context={
+                    "original_message": message,
+                },
+            ),
+        )
+    return IOSuccess(None)
