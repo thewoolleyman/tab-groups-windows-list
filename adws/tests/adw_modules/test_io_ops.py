@@ -30,6 +30,7 @@ from adws.adw_modules.io_ops import (
     get_directory_tree,
     list_context_bundles,
     load_command_workflow,
+    read_bmad_file,
     read_context_bundle,
     read_file,
     read_prime_file,
@@ -2300,10 +2301,6 @@ def test_read_bmad_file_success(
     tmp_path: Path,
 ) -> None:
     """read_bmad_file returns IOSuccess with file content."""
-    from adws.adw_modules.io_ops import (  # noqa: PLC0415
-        read_bmad_file,
-    )
-
     test_file = tmp_path / "epics.md"
     test_file.write_text("# Epic content")
     from unittest.mock import patch  # noqa: PLC0415
@@ -2324,10 +2321,6 @@ def test_read_bmad_file_not_found(
     """read_bmad_file returns IOFailure for missing file."""
     from unittest.mock import patch  # noqa: PLC0415
 
-    from adws.adw_modules.io_ops import (  # noqa: PLC0415
-        read_bmad_file,
-    )
-
     with patch(
         "adws.adw_modules.io_ops._find_project_root",
         return_value=tmp_path,
@@ -2344,10 +2337,6 @@ def test_read_bmad_file_permission_error(
 ) -> None:
     """read_bmad_file returns IOFailure on permission error."""
     from unittest.mock import patch  # noqa: PLC0415
-
-    from adws.adw_modules.io_ops import (  # noqa: PLC0415
-        read_bmad_file,
-    )
 
     test_file = tmp_path / "noperm.md"
     test_file.write_text("secret")
@@ -2366,10 +2355,6 @@ def test_read_bmad_file_permission_error(
 
 def test_read_bmad_file_empty_path() -> None:
     """read_bmad_file returns IOFailure for empty string path."""
-    from adws.adw_modules.io_ops import (  # noqa: PLC0415
-        read_bmad_file,
-    )
-
     result = read_bmad_file("")
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())

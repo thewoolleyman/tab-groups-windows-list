@@ -211,6 +211,20 @@ class TestBmadParserIntegration:
         assert "**Given**" in stories[0].acceptance_criteria
         assert "mise install" in stories[0].acceptance_criteria
 
+        # Verify stories inherit frs_covered from epic
+        assert stories[0].frs_covered == [
+            "FR41", "FR42", "FR43", "FR44", "FR45",
+        ]
+        assert stories[1].frs_covered == [
+            "FR41", "FR42", "FR43", "FR44", "FR45",
+        ]
+        assert stories[2].frs_covered == [
+            "FR23", "FR24", "FR25", "FR26", "FR27",
+        ]
+        assert stories[3].frs_covered == [
+            "FR23", "FR24", "FR25", "FR26", "FR27",
+        ]
+
     def test_raw_content_preservation(
         self, mocker: MockerFixture,
     ) -> None:

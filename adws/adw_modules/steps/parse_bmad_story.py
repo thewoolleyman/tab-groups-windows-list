@@ -44,14 +44,15 @@ def _strip_front_matter(markdown: str) -> str:
 
     Returns the markdown content after the front matter.
     If no front matter is found, returns the original text.
+    The closing ``---`` must appear on its own line.
     """
     if not markdown.startswith("---"):
         return markdown
-    # Find the closing ---
-    end = markdown.find("---", 3)
+    # Find the closing --- on its own line
+    end = markdown.find("\n---", 3)
     if end == -1:
         return markdown
-    return markdown[end + 3 :].lstrip("\n")
+    return markdown[end + 4 :].lstrip("\n")
 
 
 def _split_into_epic_sections(
@@ -169,8 +170,12 @@ def _parse_epic_header(
 def _parse_story_block(
     story_text: str,
     epic_number: int,
+    epic_frs: list[str] | None = None,
 ) -> BmadStory:
     """Parse a story block to extract BmadStory metadata.
+
+    Stories inherit ``frs_covered`` from their parent epic
+    when ``epic_frs`` is provided.
 
     Raises ValueError if the story header format is invalid.
     """
@@ -217,6 +222,7 @@ def _parse_story_block(
         slug=slug,
         user_story=user_story,
         acceptance_criteria=acceptance_criteria,
+        frs_covered=list(epic_frs) if epic_frs else [],
         raw_content=story_text.strip(),
     )
 
@@ -325,7 +331,7 @@ def parse_bmad_story(
             for block in story_blocks:
                 try:
                     story = _parse_story_block(
-                        block, epic_num,
+                        block, epic_num, frs,
                     )
                 except ValueError as exc:
                     return IOFailure(

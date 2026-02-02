@@ -480,3 +480,38 @@ From Story 5.4 learnings:
 - **unsafe_perform_io()**: MUST be used instead of `_inner_value` for accessing returns library internals.
 - **Step creation checklist**: errors.py -> io_ops.py -> step -> __init__.py -> tests -> verify. This story does NOT add new error types to errors.py (it uses existing `PipelineError` with different `error_type` strings).
 - **Frozen dataclasses**: All new data models must be frozen. Use `field(default_factory=list)` for mutable defaults.
+
+### Code Review
+
+**Reviewer**: Adversarial Code Review Agent
+**Date**: 2026-02-02
+**Result**: 4 issues found (1 HIGH, 2 MEDIUM, 1 LOW), all fixed
+
+#### Issues Found and Fixed
+
+1. **HIGH: `_strip_front_matter` matches `---` inside YAML values (parse_bmad_story.py:51)**
+   - `markdown.find("---", 3)` searches for `---` anywhere after position 3, not just on its own line
+   - If a YAML value contained `---`, the function would prematurely truncate
+   - **Fix**: Changed to `markdown.find("\n---", 3)` and adjusted offset from `end + 3` to `end + 4`
+   - **Test added**: `test_front_matter_with_dashes_in_value`
+
+2. **MEDIUM: `_parse_story_block` never populates `BmadStory.frs_covered` (parse_bmad_story.py:214-222)**
+   - Stories always got `frs_covered=[]` even though the story spec requires FR inheritance from epic
+   - Downstream stories 6.2/6.3 may need `story.frs_covered` for Beads issue creation
+   - **Fix**: Added `epic_frs` parameter to `_parse_story_block`, passed from parent epic's FRs
+   - **Tests added**: `test_story_inherits_epic_frs`, integration test assertions for `frs_covered`
+
+3. **MEDIUM: `read_bmad_file` not in top-level imports of `test_io_ops.py` (test_io_ops.py:22-47)**
+   - All 22 original io_ops functions imported at top level; `read_bmad_file` used local imports
+   - Inconsistent with established codebase pattern
+   - **Fix**: Added `read_bmad_file` to top-level import block, removed 4 local imports
+
+4. **LOW: Missing test for `_strip_front_matter` with `---` inside YAML values**
+   - No test verified that the closing `---` delimiter must be on its own line
+   - **Fix**: Added `test_front_matter_with_dashes_in_value` test case
+
+#### Quality Gate Results (Post-Fix)
+
+- **pytest**: 935 passed, 5 skipped (enemy), 100% line + branch coverage
+- **mypy --strict**: Success, no issues in 103 source files
+- **ruff check**: All checks passed

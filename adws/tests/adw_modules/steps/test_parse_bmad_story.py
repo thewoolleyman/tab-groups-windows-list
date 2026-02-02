@@ -119,6 +119,18 @@ class TestStripFrontMatter:
         result = _strip_front_matter(content)
         assert result == content
 
+    def test_front_matter_with_dashes_in_value(self) -> None:
+        """Dashes inside YAML values are not treated as delimiters."""
+        content = (
+            "---\n"
+            "description: use --- to separate\n"
+            "---\n\n"
+            "# Title\n\nContent"
+        )
+        result = _strip_front_matter(content)
+        assert result.startswith("# Title")
+        assert "description" not in result
+
 
 # --- _split_into_epic_sections tests ---
 
@@ -283,6 +295,25 @@ class TestParseStoryBlock:
         assert "ADWS developer" in story.user_story
         assert "**Given**" in story.acceptance_criteria
         assert "#### Story 6.1" in story.raw_content
+        assert story.frs_covered == []
+
+    def test_story_inherits_epic_frs(self) -> None:
+        """Story inherits frs_covered from parent epic."""
+        block = (
+            "#### Story 6.1: BMAD Markdown Parser\n\n"
+            "As an ADWS developer,\n"
+            "I want to parse BMAD files,\n"
+            "So that the converter works.\n\n"
+            "**Acceptance Criteria:**\n\n"
+            "**Given** a file\n"
+            "**When** parsed\n"
+            "**Then** content extracted\n"
+        )
+        epic_frs = ["FR23", "FR24", "FR25"]
+        story = _parse_story_block(block, 6, epic_frs)
+        assert story.frs_covered == ["FR23", "FR24", "FR25"]
+        # Verify it's a copy, not the same list
+        assert story.frs_covered is not epic_frs
 
     def test_missing_user_story(self) -> None:
         """Story without As a/I want/So that returns empty user_story."""
