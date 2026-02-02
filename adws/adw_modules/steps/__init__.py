@@ -20,6 +20,9 @@ from adws.adw_modules.steps.create_beads_issue import (
     create_beads_issue,
 )
 from adws.adw_modules.steps.execute_shell_step import execute_shell_step
+from adws.adw_modules.steps.extract_workflow_tag import (
+    extract_and_validate_tag,
+)
 from adws.adw_modules.steps.implement_step import implement_step
 from adws.adw_modules.steps.log_hook_event import (
     log_hook_event,
@@ -27,6 +30,9 @@ from adws.adw_modules.steps.log_hook_event import (
 )
 from adws.adw_modules.steps.parse_bmad_story import (
     parse_bmad_story,
+)
+from adws.adw_modules.steps.read_and_extract import (
+    read_and_extract,
 )
 from adws.adw_modules.steps.refactor_step import refactor_step
 from adws.adw_modules.steps.run_jest_step import run_jest_step
@@ -57,10 +63,12 @@ __all__ = [
     "convert_stories_orchestrator",
     "create_beads_issue",
     "execute_shell_step",
+    "extract_and_validate_tag",
     "implement_step",
     "log_hook_event",
     "log_hook_event_safe",
     "parse_bmad_story",
+    "read_and_extract",
     "refactor_step",
     "run_jest_step",
     "run_mypy_step",

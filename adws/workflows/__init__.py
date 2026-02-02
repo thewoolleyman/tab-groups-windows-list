@@ -189,3 +189,14 @@ def list_workflows(*, dispatchable_only: bool = False) -> list[Workflow]:
     if dispatchable_only:
         return [w for w in workflows if w.dispatchable]
     return workflows
+
+
+def list_dispatchable_workflows() -> list[str]:
+    """Return sorted names of dispatchable workflows.
+
+    Convenience helper for error messages and dispatch UI.
+    """
+    return sorted(
+        w.name
+        for w in list_workflows(dispatchable_only=True)
+    )

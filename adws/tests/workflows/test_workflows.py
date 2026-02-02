@@ -1,6 +1,11 @@
 """Tests for workflow registry and discovery."""
 from adws.adw_modules.engine.types import Step, Workflow
-from adws.workflows import WorkflowName, list_workflows, load_workflow
+from adws.workflows import (
+    WorkflowName,
+    list_dispatchable_workflows,
+    list_workflows,
+    load_workflow,
+)
 
 
 def test_workflow_name_constants() -> None:
@@ -501,3 +506,28 @@ def test_ivc_registry_entry() -> None:
     spec = COMMAND_REGISTRY.get("implement")
     assert spec is not None
     assert spec.workflow_name == "implement_verify_close"
+
+
+# --- Story 7.1: list_dispatchable_workflows helper tests ---
+
+
+def test_list_dispatchable_workflows_returns_sorted() -> None:
+    """list_dispatchable_workflows returns sorted dispatchable names."""
+    names = list_dispatchable_workflows()
+    assert isinstance(names, list)
+    assert names == sorted(names)
+
+
+def test_list_dispatchable_workflows_includes_expected() -> None:
+    """Includes implement_close and implement_verify_close."""
+    names = list_dispatchable_workflows()
+    assert WorkflowName.IMPLEMENT_CLOSE in names
+    assert WorkflowName.IMPLEMENT_VERIFY_CLOSE in names
+
+
+def test_list_dispatchable_workflows_excludes_non_dispatchable() -> None:
+    """list_dispatchable_workflows excludes non-dispatchable workflows."""
+    names = list_dispatchable_workflows()
+    assert WorkflowName.CONVERT_STORIES_TO_BEADS not in names
+    assert WorkflowName.SAMPLE not in names
+    assert WorkflowName.VERIFY not in names

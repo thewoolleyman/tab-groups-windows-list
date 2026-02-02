@@ -774,6 +774,30 @@ def run_beads_create(
     return result.bind(_check_exit)
 
 
+def read_issue_description(
+    issue_id: str,
+) -> IOResult[str, PipelineError]:
+    """Read a Beads issue description for dispatch (FR18).
+
+    Semantic wrapper around run_beads_show for the dispatch
+    flow. Validates issue_id is non-empty, then delegates
+    to run_beads_show.
+    """
+    if not issue_id or not issue_id.strip():
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.read_issue_description",
+                error_type="ValueError",
+                message=(
+                    "Empty issue_id provided to"
+                    " read_issue_description"
+                ),
+                context={"issue_id": issue_id},
+            ),
+        )
+    return run_beads_show(issue_id)
+
+
 # --- Hook event logging io_ops (Story 5.1) ---
 
 

@@ -33,6 +33,7 @@ from adws.adw_modules.io_ops import (
     read_bmad_file,
     read_context_bundle,
     read_file,
+    read_issue_description,
     read_prime_file,
     run_beads_show,
     run_jest_tests,
@@ -2695,3 +2696,55 @@ def test_parse_beads_issue_id_multiline() -> None:
     assert _parse_beads_issue_id(
         "FIRST-1\nSECOND-2\n",
     ) == "FIRST-1"
+
+
+# --- read_issue_description tests (Story 7.1) ---
+
+
+def test_read_issue_description_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """read_issue_description delegates to run_beads_show and returns IOSuccess."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_show",
+        return_value=IOSuccess("issue description text"),
+    )
+    result = read_issue_description("ISSUE-42")
+    assert isinstance(result, IOSuccess)
+    val = unsafe_perform_io(result.unwrap())
+    assert val == "issue description text"
+
+
+def test_read_issue_description_empty_id() -> None:
+    """read_issue_description returns IOFailure for empty issue_id."""
+    result = read_issue_description("")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ValueError"
+    assert error.step_name == "io_ops.read_issue_description"
+
+
+def test_read_issue_description_whitespace_only_id() -> None:
+    """read_issue_description returns IOFailure for whitespace-only issue_id."""
+    result = read_issue_description("   ")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ValueError"
+    assert error.step_name == "io_ops.read_issue_description"
+
+
+def test_read_issue_description_failure_propagates(mocker) -> None:  # type: ignore[no-untyped-def]
+    """read_issue_description propagates IOFailure from run_beads_show."""
+    show_err = PipelineError(
+        step_name="io_ops.run_beads_show",
+        error_type="BeadsShowError",
+        message="bd show failed",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_show",
+        return_value=IOFailure(show_err),
+    )
+    result = read_issue_description("BAD-1")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is show_err
