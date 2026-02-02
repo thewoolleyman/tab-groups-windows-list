@@ -118,6 +118,21 @@ class WorkflowContext:
         return replace(self, outputs={**self.outputs, **new_outputs})
 
 
+@dataclass(frozen=True)
+class FileTrackEntry:
+    """Structured file tracking entry for context bundles (FR34)."""
+
+    timestamp: str
+    file_path: str
+    operation: str
+    session_id: str
+    hook_name: str
+
+    def to_jsonl(self) -> str:
+        """Serialize to single-line JSON for JSONL format."""
+        return json.dumps(asdict(self), separators=(",", ":"))
+
+
 class AdwsRequest(BaseModel):
     """Request payload for SDK boundary calls."""
 

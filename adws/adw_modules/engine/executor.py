@@ -23,6 +23,8 @@ from adws.adw_modules.steps import (
     run_mypy_step,
     run_playwright_step,
     run_ruff_step,
+    track_file_operation,
+    track_file_operation_safe,
     verify_tests_fail,
     write_failing_tests,
 )
@@ -46,6 +48,8 @@ _STEP_REGISTRY: dict[str, StepFunction] = {
     "run_playwright_step": run_playwright_step,
     "run_mypy_step": run_mypy_step,
     "run_ruff_step": run_ruff_step,
+    "track_file_operation": track_file_operation,
+    "track_file_operation_safe": track_file_operation_safe,
     "verify_tests_fail": verify_tests_fail,
     "write_failing_tests": write_failing_tests,
 }

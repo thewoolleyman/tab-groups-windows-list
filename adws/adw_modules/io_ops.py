@@ -637,7 +637,8 @@ def _sanitize_session_id(session_id: str) -> str:
     """Sanitize session_id to prevent path traversal.
 
     Strips path separators and parent references so the
-    resulting filename stays within agents/hook_logs/.
+    resulting filename stays within its target directory
+    (e.g., agents/hook_logs/ or agents/context_bundles/).
     """
     from pathlib import PurePosixPath as _PurePath  # noqa: PLC0415
 
@@ -675,6 +676,43 @@ def write_hook_log(
                 error_type="HookLogWriteError",
                 message=(
                     f"Failed to write hook log"
+                    f" for session {session_id}:"
+                    f" {exc}"
+                ),
+                context={
+                    "session_id": session_id,
+                },
+            ),
+        )
+    return IOSuccess(None)
+
+
+def write_context_bundle(
+    session_id: str,
+    entry_json: str,
+) -> IOResult[None, PipelineError]:
+    """Append entry JSONL to session-specific context bundle (FR34).
+
+    Creates agents/context_bundles/ directory if it does not
+    exist. Appends entry_json + newline to the file named
+    <session_id>.jsonl. Returns IOSuccess(None) on success.
+    Sanitizes session_id to prevent path traversal.
+    """
+    try:
+        safe_id = _sanitize_session_id(session_id)
+        root = _find_project_root()
+        bundle_dir = root / "agents" / "context_bundles"
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        bundle_file = bundle_dir / f"{safe_id}.jsonl"
+        with bundle_file.open("a") as f:
+            f.write(entry_json + "\n")
+    except (PermissionError, OSError) as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_context_bundle",
+                error_type="ContextBundleWriteError",
+                message=(
+                    f"Failed to write context bundle"
                     f" for session {session_id}:"
                     f" {exc}"
                 ),

@@ -38,6 +38,7 @@ from adws.adw_modules.io_ops import (
     run_ruff_check,
     run_shell_command,
     sleep_seconds,
+    write_context_bundle,
     write_hook_log,
     write_stderr,
 )
@@ -1736,3 +1737,158 @@ def test_write_stderr_os_error(mocker: Any) -> None:
     assert isinstance(error, PipelineError)
     assert error.step_name == "io_ops.write_stderr"
     assert "broken pipe" in error.message
+
+
+# --- write_context_bundle tests (Story 5.2) ---
+
+
+def test_write_context_bundle_success(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_context_bundle appends entry_json to session file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_context_bundle(
+            "session-abc123",
+            '{"file_path":"/some/file.py"}',
+        )
+    assert isinstance(result, IOSuccess)
+    assert unsafe_perform_io(result.unwrap()) is None
+    bundle_file = (
+        tmp_path / "agents" / "context_bundles"
+        / "session-abc123.jsonl"
+    )
+    assert bundle_file.exists()
+    content = bundle_file.read_text()
+    assert content == '{"file_path":"/some/file.py"}\n'
+
+
+def test_write_context_bundle_appends_to_existing(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_context_bundle appends to existing session file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+    bundle_file = bundle_dir / "sess-1.jsonl"
+    bundle_file.write_text('{"first":"entry"}\n')
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_context_bundle(
+            "sess-1", '{"second":"entry"}',
+        )
+    assert isinstance(result, IOSuccess)
+    content = bundle_file.read_text()
+    assert content == (
+        '{"first":"entry"}\n{"second":"entry"}\n'
+    )
+
+
+def test_write_context_bundle_creates_directory(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_context_bundle creates agents/context_bundles/ if missing."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    assert not bundle_dir.exists()
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_context_bundle(
+            "sess-new", '{"data":"val"}',
+        )
+    assert isinstance(result, IOSuccess)
+    assert bundle_dir.exists()
+
+
+def test_write_context_bundle_permission_error(
+    mocker: Any,
+) -> None:
+    """write_context_bundle returns IOFailure on PermissionError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    mock_path = mocker.MagicMock()
+    mock_path.__truediv__ = mocker.MagicMock(
+        return_value=mock_path,
+    )
+    mock_path.mkdir.side_effect = PermissionError(
+        "no permission",
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=mock_path,
+    ):
+        result = write_context_bundle(
+            "sess-1", '{"a":"b"}',
+        )
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ContextBundleWriteError"
+    assert error.step_name == "io_ops.write_context_bundle"
+
+
+def test_write_context_bundle_os_error_on_write(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_context_bundle returns IOFailure on file write OSError."""
+    from pathlib import Path as PathCls  # noqa: PLC0415
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch.object(
+            PathCls, "open",
+            side_effect=OSError("disk full"),
+        )
+        result = write_context_bundle(
+            "sess-1", '{"a":"b"}',
+        )
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ContextBundleWriteError"
+    assert error.step_name == "io_ops.write_context_bundle"
+    assert "disk full" in error.message
+
+
+def test_write_context_bundle_path_traversal_blocked(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_context_bundle sanitizes traversal session_ids."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_context_bundle(
+            "../../etc/passwd",
+            '{"event":"test"}',
+        )
+    assert isinstance(result, IOSuccess)
+    # File should be in context_bundles/, NOT traversing out
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    assert (bundle_dir / "passwd.jsonl").exists()
+    # Verify no file was written outside context_bundles
+    assert not (tmp_path / "etc").exists()

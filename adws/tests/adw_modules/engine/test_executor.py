@@ -30,6 +30,8 @@ from adws.adw_modules.steps import (
     run_mypy_step,
     run_playwright_step,
     run_ruff_step,
+    track_file_operation,
+    track_file_operation_safe,
 )
 from adws.adw_modules.types import VerifyResult, WorkflowContext
 from adws.workflows import WorkflowName, load_workflow
@@ -154,6 +156,26 @@ class TestResolveStepFunction:
         assert isinstance(result, IOSuccess)
         resolved_fn = unsafe_perform_io(result.unwrap())
         assert resolved_fn is log_hook_event_safe
+
+    def test_resolve_track_file_operation(self) -> None:
+        """track_file_operation is in the registry."""
+        result = _resolve_step_function(
+            "track_file_operation",
+        )
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is track_file_operation
+
+    def test_resolve_track_file_operation_safe(
+        self,
+    ) -> None:
+        """track_file_operation_safe is in the registry."""
+        result = _resolve_step_function(
+            "track_file_operation_safe",
+        )
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is track_file_operation_safe
 
 
 # --- Task 1: run_step tests ---
