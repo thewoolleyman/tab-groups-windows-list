@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Groups & Windows List",
-  "version": "1.2.39",
+  "version": "1.2.40",
   "description": "A 3-level expandable hierarchy of Windows, Tab Groups, and Tabs.",
   "permissions": [
     "tabGroups",
