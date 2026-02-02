@@ -1,6 +1,6 @@
 # Story 2.1: Error Types & WorkflowContext
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,26 +20,26 @@ so that all pipeline components have a consistent contract for error propagation
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Evolve PipelineError for full pipeline use (AC: #1)
-  - [ ] 1.1 RED: Write tests for PipelineError serialization (`to_dict()` method) -- must be serializable for JSONL logging
-  - [ ] 1.2 GREEN: Implement `to_dict()` on PipelineError that returns a plain dict suitable for `json.dumps()`
-  - [ ] 1.3 RED: Write tests for PipelineError `__str__` representation for human-readable logging
-  - [ ] 1.4 GREEN: Implement `__str__` on PipelineError
-  - [ ] 1.5 REFACTOR: Clean up, verify 100% coverage
+- [x] Task 1: Evolve PipelineError for full pipeline use (AC: #1)
+  - [x] 1.1 RED: Write tests for PipelineError serialization (`to_dict()` method) -- must be serializable for JSONL logging
+  - [x] 1.2 GREEN: Implement `to_dict()` on PipelineError that returns a plain dict suitable for `json.dumps()`
+  - [x] 1.3 RED: Write tests for PipelineError `__str__` representation for human-readable logging
+  - [x] 1.4 GREEN: Implement `__str__` on PipelineError
+  - [x] 1.5 REFACTOR: Clean up, verify 100% coverage
 
-- [ ] Task 2: Evolve WorkflowContext for pipeline context propagation (AC: #2)
-  - [ ] 2.1 RED: Write tests for feedback accumulation -- `add_feedback()` returns new context with appended feedback entry
-  - [ ] 2.2 GREEN: Implement `add_feedback(entry: str) -> WorkflowContext` method
-  - [ ] 2.3 RED: Write tests for output-to-input propagation -- `promote_outputs_to_inputs()` returns new context with outputs merged into inputs
-  - [ ] 2.4 GREEN: Implement `promote_outputs_to_inputs() -> WorkflowContext`
-  - [ ] 2.5 RED: Write tests for `merge_outputs()` -- merging new outputs into existing context outputs
-  - [ ] 2.6 GREEN: Implement `merge_outputs(new_outputs: dict) -> WorkflowContext`
-  - [ ] 2.7 REFACTOR: Clean up, verify 100% coverage
+- [x] Task 2: Evolve WorkflowContext for pipeline context propagation (AC: #2)
+  - [x] 2.1 RED: Write tests for feedback accumulation -- `add_feedback()` returns new context with appended feedback entry
+  - [x] 2.2 GREEN: Implement `add_feedback(entry: str) -> WorkflowContext` method
+  - [x] 2.3 RED: Write tests for output-to-input propagation -- `promote_outputs_to_inputs()` returns new context with outputs merged into inputs
+  - [x] 2.4 GREEN: Implement `promote_outputs_to_inputs() -> WorkflowContext`
+  - [x] 2.5 RED: Write tests for `merge_outputs()` -- merging new outputs into existing context outputs
+  - [x] 2.6 GREEN: Implement `merge_outputs(new_outputs: dict) -> WorkflowContext`
+  - [x] 2.7 REFACTOR: Clean up, verify 100% coverage
 
-- [ ] Task 3: Verify full integration and quality gates (AC: #3)
-  - [ ] 3.1 Run `uv run pytest adws/tests/` -- all tests pass, 100% line + branch coverage
-  - [ ] 3.2 Run `uv run mypy adws/` -- strict mode passes
-  - [ ] 3.3 Run `uv run ruff check adws/` -- zero violations
+- [x] Task 3: Verify full integration and quality gates (AC: #3)
+  - [x] 3.1 Run `uv run pytest adws/tests/` -- all tests pass, 100% line + branch coverage
+  - [x] 3.2 Run `uv run mypy adws/` -- strict mode passes
+  - [x] 3.3 Run `uv run ruff check adws/` -- zero violations
 
 ## Dev Notes
 
@@ -150,13 +150,25 @@ From Story 1.2 learnings:
 
 Claude Opus 4.5 (claude-opus-4-5-20251101)
 
+### Debug Log References
+
+### Completion Notes List
+
+- PipelineError: Added `to_dict()` using `dataclasses.asdict()` for JSON-serializable output, and `__str__` with format `PipelineError[step_name] error_type: message | context={...}`
+- WorkflowContext: Added `add_feedback(entry)` for feedback accumulation (FR16), `promote_outputs_to_inputs()` for step-to-step context propagation (FR3), and `merge_outputs(new_outputs)` for merging step outputs
+- All methods preserve frozen immutability -- return new instances via `dataclasses.replace()`
+- 44 tests total (14 new), 100% line + branch coverage
+- mypy strict: 22 source files, no issues
+- ruff ALL: zero violations
+
 ### Change Log
 
 - 2026-02-01: Story created with comprehensive context from Epic 1 artifacts, architecture, and PRD analysis
+- 2026-02-01: Implemented all tasks via TDD (RED/GREEN/REFACTOR). 14 new tests added. All quality gates pass.
 
 ### File List
 
-- `adws/adw_modules/errors.py` -- Modified (add to_dict, __str__ to PipelineError)
-- `adws/adw_modules/types.py` -- Modified (add add_feedback, promote_outputs_to_inputs, merge_outputs to WorkflowContext)
-- `adws/tests/adw_modules/test_errors.py` -- Modified (add serialization and string representation tests)
-- `adws/tests/adw_modules/test_types.py` -- Modified (add feedback accumulation, output propagation, merge tests)
+- `adws/adw_modules/errors.py` -- Modified (added `to_dict()`, `__str__` to PipelineError)
+- `adws/adw_modules/types.py` -- Modified (added `add_feedback()`, `promote_outputs_to_inputs()`, `merge_outputs()` to WorkflowContext)
+- `adws/tests/adw_modules/test_errors.py` -- Modified (5 new tests: to_dict fields, empty context, JSON serializable, str format, str with context)
+- `adws/tests/adw_modules/test_types.py` -- Modified (10 new tests: add_feedback x3, promote_outputs x3, merge_outputs x4)

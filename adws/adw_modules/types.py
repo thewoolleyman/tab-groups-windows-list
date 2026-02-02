@@ -30,3 +30,19 @@ class WorkflowContext:
             outputs=outputs if outputs is not None else self.outputs,
             feedback=feedback if feedback is not None else self.feedback,
         )
+
+    def add_feedback(self, entry: str) -> WorkflowContext:
+        """Return new context with feedback entry appended."""
+        return replace(self, feedback=[*self.feedback, entry])
+
+    def promote_outputs_to_inputs(self) -> WorkflowContext:
+        """Merge outputs into inputs and clear outputs for the next step."""
+        return replace(
+            self,
+            inputs={**self.inputs, **self.outputs},
+            outputs={},
+        )
+
+    def merge_outputs(self, new_outputs: dict[str, object]) -> WorkflowContext:
+        """Return new context with new_outputs merged into existing outputs."""
+        return replace(self, outputs={**self.outputs, **new_outputs})
