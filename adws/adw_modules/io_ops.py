@@ -774,6 +774,91 @@ def run_beads_create(
     return result.bind(_check_exit)
 
 
+def run_beads_list(
+    status: str,
+) -> IOResult[str, PipelineError]:
+    """List Beads issues by status via bd list (NFR17, FR21).
+
+    Delegates to run_shell_command. Nonzero exit is
+    IOFailure with BeadsListError. Returns stdout on success.
+    """
+    safe_status = shlex.quote(status)
+    cmd = f"bd list --status={safe_status}"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[str, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.run_beads_list",
+                    error_type="BeadsListError",
+                    message=(
+                        f"bd list failed for"
+                        f" status={status}: {sr.stderr}"
+                    ),
+                    context={
+                        "status": status,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr.stdout)
+
+    return result.bind(_check_exit)
+
+
+def read_issue_notes(
+    issue_id: str,
+) -> IOResult[str, PipelineError]:
+    """Read a Beads issue's notes field for dispatch guard (FR47).
+
+    Executes bd show {issue_id} --notes via run_shell_command.
+    Validates issue_id is non-empty. Nonzero exit is IOFailure
+    with BeadsShowNotesError. Returns stdout on success.
+    """
+    if not issue_id or not issue_id.strip():
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.read_issue_notes",
+                error_type="ValueError",
+                message=(
+                    "Empty issue_id provided to"
+                    " read_issue_notes"
+                ),
+                context={"issue_id": issue_id},
+            ),
+        )
+    safe_id = shlex.quote(issue_id)
+    cmd = f"bd show {safe_id} --notes"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[str, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.read_issue_notes",
+                    error_type="BeadsShowNotesError",
+                    message=(
+                        f"bd show --notes failed for"
+                        f" {issue_id}: {sr.stderr}"
+                    ),
+                    context={
+                        "issue_id": issue_id,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr.stdout)
+
+    return result.bind(_check_exit)
+
+
 def read_issue_description(
     issue_id: str,
 ) -> IOResult[str, PipelineError]:

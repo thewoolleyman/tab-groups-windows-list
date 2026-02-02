@@ -19,6 +19,11 @@ from adws.adw_modules.steps.convert_stories_orchestrator import (
 from adws.adw_modules.steps.create_beads_issue import (
     create_beads_issue,
 )
+from adws.adw_modules.steps.dispatch_guard import (
+    check_dispatch_guard,
+    has_active_failure_metadata,
+    parse_issue_list,
+)
 from adws.adw_modules.steps.execute_shell_step import execute_shell_step
 from adws.adw_modules.steps.extract_workflow_tag import (
     extract_and_validate_tag,
@@ -59,15 +64,18 @@ __all__ = [
     "block_dangerous_command",
     "block_dangerous_command_safe",
     "build_feedback_context",
+    "check_dispatch_guard",
     "check_sdk_available",
     "convert_stories_orchestrator",
     "create_beads_issue",
     "execute_shell_step",
     "extract_and_validate_tag",
+    "has_active_failure_metadata",
     "implement_step",
     "log_hook_event",
     "log_hook_event_safe",
     "parse_bmad_story",
+    "parse_issue_list",
     "read_and_extract",
     "refactor_step",
     "run_jest_step",

@@ -2748,3 +2748,208 @@ def test_read_issue_description_failure_propagates(mocker) -> None:  # type: ign
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert error is show_err
+
+
+# --- run_beads_list tests (Story 7.3) ---
+
+
+def test_run_beads_list_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_list calls bd list and returns IOSuccess with stdout."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_list,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ISSUE-1\nISSUE-2\n",
+                stderr="",
+                command="bd list --status=open",
+            ),
+        ),
+    )
+    result = run_beads_list("open")
+    assert isinstance(result, IOSuccess)
+    val = unsafe_perform_io(result.unwrap())
+    assert val == "ISSUE-1\nISSUE-2\n"
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd list" in cmd
+    assert "--status=" in cmd
+    assert "open" in cmd
+
+
+def test_run_beads_list_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_list returns IOFailure on nonzero exit code."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_list,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="No issues found",
+                command="bd list --status=open",
+            ),
+        ),
+    )
+    result = run_beads_list("open")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsListError"
+    assert error.step_name == "io_ops.run_beads_list"
+
+
+def test_run_beads_list_shell_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_list propagates shell command IOFailure via bind."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_list,
+    )
+
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = run_beads_list("open")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err
+
+
+def test_run_beads_list_shell_safe(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_list uses shlex.quote to prevent injection."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_list,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="",
+                stderr="",
+                command="bd list",
+            ),
+        ),
+    )
+    run_beads_list('open"; rm -rf / #')
+    cmd = mock_shell.call_args[0][0]
+    assert "rm -rf" not in cmd.split("'")[0]
+    assert "'" in cmd
+
+
+# --- read_issue_notes tests (Story 7.3) ---
+
+
+def test_read_issue_notes_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """read_issue_notes calls bd show --notes and returns IOSuccess."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_issue_notes,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ADWS_FAILED|attempt=1|...",
+                stderr="",
+                command="bd show ISSUE-42 --notes",
+            ),
+        ),
+    )
+    result = read_issue_notes("ISSUE-42")
+    assert isinstance(result, IOSuccess)
+    val = unsafe_perform_io(result.unwrap())
+    assert val == "ADWS_FAILED|attempt=1|..."
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd show" in cmd
+    assert "ISSUE-42" in cmd
+    assert "--notes" in cmd
+
+
+def test_read_issue_notes_empty_id() -> None:
+    """read_issue_notes returns IOFailure for empty issue_id."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_issue_notes,
+    )
+
+    result = read_issue_notes("")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ValueError"
+    assert error.step_name == "io_ops.read_issue_notes"
+
+
+def test_read_issue_notes_whitespace_only_id() -> None:
+    """read_issue_notes returns IOFailure for whitespace-only issue_id."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_issue_notes,
+    )
+
+    result = read_issue_notes("   ")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ValueError"
+    assert error.step_name == "io_ops.read_issue_notes"
+
+
+def test_read_issue_notes_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """read_issue_notes returns IOFailure on nonzero exit code."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_issue_notes,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="not found",
+                command="bd show ISSUE-42 --notes",
+            ),
+        ),
+    )
+    result = read_issue_notes("ISSUE-42")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsShowNotesError"
+    assert error.step_name == "io_ops.read_issue_notes"
+
+
+def test_read_issue_notes_shell_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """read_issue_notes propagates shell command IOFailure via bind."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_issue_notes,
+    )
+
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = read_issue_notes("ISSUE-42")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err
