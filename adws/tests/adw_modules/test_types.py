@@ -4,7 +4,12 @@ import dataclasses
 import pytest
 from pydantic import BaseModel
 
-from adws.adw_modules.types import AdwsRequest, AdwsResponse, WorkflowContext
+from adws.adw_modules.types import (
+    AdwsRequest,
+    AdwsResponse,
+    ShellResult,
+    WorkflowContext,
+)
 
 
 def test_workflow_context_construction() -> None:
@@ -265,3 +270,31 @@ def test_adws_response_is_frozen() -> None:
 def test_adws_response_is_pydantic_model() -> None:
     """RED: AdwsResponse does not exist yet."""
     assert issubclass(AdwsResponse, BaseModel)
+
+
+# --- ShellResult Tests ---
+
+
+def test_shell_result_construction() -> None:
+    """RED: ShellResult does not exist yet."""
+    sr = ShellResult(
+        return_code=0,
+        stdout="hello\n",
+        stderr="",
+        command="echo hello",
+    )
+    assert sr.return_code == 0
+    assert sr.stdout == "hello\n"
+    assert sr.stderr == ""
+    assert sr.command == "echo hello"
+
+
+def test_shell_result_frozen() -> None:
+    """RED: ShellResult does not exist yet."""
+    sr = ShellResult(
+        return_code=0, stdout="", stderr="", command="ls"
+    )
+    assert dataclasses.is_dataclass(sr)
+    assert type(sr).__dataclass_params__.frozen  # type: ignore[attr-defined]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        sr.return_code = 1  # type: ignore[misc]

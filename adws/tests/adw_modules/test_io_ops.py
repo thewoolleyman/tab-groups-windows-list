@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import builtins
+import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -17,8 +18,13 @@ from returns.io import IOFailure, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
 from adws.adw_modules.errors import PipelineError
-from adws.adw_modules.io_ops import check_sdk_import, execute_sdk_call, read_file
-from adws.adw_modules.types import AdwsRequest, AdwsResponse
+from adws.adw_modules.io_ops import (
+    check_sdk_import,
+    execute_sdk_call,
+    read_file,
+    run_shell_command,
+)
+from adws.adw_modules.types import AdwsRequest, AdwsResponse, ShellResult
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -299,3 +305,138 @@ def test_execute_sdk_call_base_sdk_error(mocker) -> None:  # type: ignore[no-unt
     error = unsafe_perform_io(result.failure())
     assert isinstance(error, PipelineError)
     assert error.error_type == "ClaudeSDKError"
+
+
+# --- run_shell_command tests ---
+
+
+def test_run_shell_command_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: run_shell_command does not exist yet."""
+    fake_completed = subprocess.CompletedProcess(
+        args="echo hello",
+        returncode=0,
+        stdout="hello\n",
+        stderr="",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        return_value=fake_completed,
+    )
+    result = run_shell_command("echo hello")
+    assert isinstance(result, IOSuccess)
+    shell_result = unsafe_perform_io(result.unwrap())
+    assert isinstance(shell_result, ShellResult)
+    assert shell_result.return_code == 0
+    assert shell_result.stdout == "hello\n"
+    assert shell_result.stderr == ""
+    assert shell_result.command == "echo hello"
+
+
+def test_run_shell_command_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: Nonzero exit is still IOSuccess with ShellResult."""
+    fake_completed = subprocess.CompletedProcess(
+        args="false",
+        returncode=1,
+        stdout="",
+        stderr="error msg",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        return_value=fake_completed,
+    )
+    result = run_shell_command("false")
+    assert isinstance(result, IOSuccess)
+    shell_result = unsafe_perform_io(result.unwrap())
+    assert shell_result.return_code == 1
+    assert shell_result.stderr == "error msg"
+
+
+def test_run_shell_command_with_cwd(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: Verify cwd parameter is passed to subprocess."""
+    mock_run = mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args="ls", returncode=0, stdout="", stderr=""
+        ),
+    )
+    run_shell_command("ls", cwd="/some/dir")
+    mock_run.assert_called_once()
+    call_kwargs = mock_run.call_args
+    assert call_kwargs.kwargs.get("cwd") == "/some/dir"
+
+
+def test_run_shell_command_with_timeout(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: Verify timeout parameter is passed to subprocess."""
+    mock_run = mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args="sleep 1", returncode=0, stdout="", stderr=""
+        ),
+    )
+    run_shell_command("sleep 1", timeout=30)
+    mock_run.assert_called_once()
+    call_kwargs = mock_run.call_args
+    assert call_kwargs.kwargs.get("timeout") == 30
+
+
+def test_run_shell_command_timeout(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: Timeout raises subprocess.TimeoutExpired -> IOFailure."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(
+            cmd="slow_cmd", timeout=10
+        ),
+    )
+    result = run_shell_command("slow_cmd", timeout=10)
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "TimeoutError"
+    assert "timed out" in error.message
+    assert error.context["command"] == "slow_cmd"
+    assert error.context["timeout"] == 10
+
+
+def test_run_shell_command_file_not_found(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: FileNotFoundError -> IOFailure."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        side_effect=FileNotFoundError("no such cmd"),
+    )
+    result = run_shell_command("nonexistent_cmd")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "FileNotFoundError"
+    assert "nonexistent_cmd" in error.message
+
+
+def test_run_shell_command_os_error(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: OSError -> IOFailure."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        side_effect=OSError("disk error"),
+    )
+    result = run_shell_command("some_cmd")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "OSError"
+    assert "disk error" in error.message
+
+
+def test_run_shell_command_passes_critical_flags(mocker) -> None:  # type: ignore[no-untyped-def]
+    """Verify subprocess.run gets critical safety flags."""
+    mock_run = mocker.patch(
+        "adws.adw_modules.io_ops.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args="echo ok", returncode=0, stdout="ok", stderr=""
+        ),
+    )
+    run_shell_command("echo ok")
+    mock_run.assert_called_once()
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["shell"] is True
+    assert kwargs["capture_output"] is True
+    assert kwargs["text"] is True
+    assert kwargs["check"] is False

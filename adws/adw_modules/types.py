@@ -12,6 +12,16 @@ PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
 
 @dataclass(frozen=True)
+class ShellResult:
+    """Result of a shell command execution."""
+
+    return_code: int
+    stdout: str
+    stderr: str
+    command: str
+
+
+@dataclass(frozen=True)
 class WorkflowContext:
     """Immutable context flowing through pipeline steps.
 

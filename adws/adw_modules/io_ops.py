@@ -6,6 +6,7 @@ Steps never import I/O directly; they call io_ops functions.
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from typing import TYPE_CHECKING
 
 from claude_agent_sdk import (
@@ -17,7 +18,7 @@ from claude_agent_sdk import (
 from returns.io import IOFailure, IOResult, IOSuccess
 
 from adws.adw_modules.errors import PipelineError
-from adws.adw_modules.types import AdwsRequest, AdwsResponse
+from adws.adw_modules.types import AdwsRequest, AdwsResponse, ShellResult
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -135,3 +136,64 @@ def execute_sdk_call(
         )
     else:
         return IOSuccess(response)
+
+
+def run_shell_command(
+    command: str,
+    *,
+    timeout: int | None = None,
+    cwd: str | None = None,
+) -> IOResult[ShellResult, PipelineError]:
+    """Execute shell command. Returns IOResult, never raises.
+
+    Uses shell=True intentionally -- this function executes shell command
+    strings (e.g. "npm test", "uv run pytest") as pipeline steps.
+    Nonzero exit codes are valid results, not errors. The calling step
+    decides the policy for nonzero return codes.
+    """
+    try:
+        result = subprocess.run(  # noqa: S602
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.run_shell_command",
+                error_type="TimeoutError",
+                message=f"Command timed out after {timeout}s: {command}",
+                context={"command": command, "timeout": timeout},
+            ),
+        )
+    except FileNotFoundError:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.run_shell_command",
+                error_type="FileNotFoundError",
+                message=f"Command not found: {command}",
+                context={"command": command},
+            ),
+        )
+    except OSError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.run_shell_command",
+                error_type=type(exc).__name__,
+                message=f"OS error running command: {exc}",
+                context={"command": command},
+            ),
+        )
+    else:
+        return IOSuccess(
+            ShellResult(
+                return_code=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                command=command,
+            ),
+        )
