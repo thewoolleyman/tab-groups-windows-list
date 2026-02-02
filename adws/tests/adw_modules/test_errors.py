@@ -37,3 +37,8 @@ def test_pipeline_error_is_frozen() -> None:
     )
     assert dataclasses.is_dataclass(error)
     assert type(error).__dataclass_params__.frozen  # type: ignore[attr-defined]
+
+
+def test_deliberate_ci_failure() -> None:
+    """TEMPORARY: Deliberately failing test to verify CI blocks merge. Remove after verification."""
+    assert False, "This test deliberately fails to verify CI merge blocking"  # noqa: B011, S101
