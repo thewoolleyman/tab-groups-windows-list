@@ -2362,3 +2362,242 @@ def test_read_bmad_file_empty_path() -> None:
     assert error.step_name == "io_ops.read_bmad_file"
     assert error.error_type == "ValueError"
     assert "empty" in error.message.lower()
+
+
+# --- run_beads_create tests (Story 6.2) ---
+
+
+def test_run_beads_create_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create calls bd create and returns IOSuccess with issue ID."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="Created issue: ISSUE-123\n",
+                stderr="",
+                command="bd create --title t --description d",
+            ),
+        ),
+    )
+    result = run_beads_create("My Title", "My Description")
+    assert isinstance(result, IOSuccess)
+    issue_id = unsafe_perform_io(result.unwrap())
+    assert issue_id == "ISSUE-123"
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd create" in cmd
+    assert "--title" in cmd
+    assert "--description" in cmd
+
+
+def test_run_beads_create_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create returns IOFailure on nonzero exit code."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="Error: failed to create",
+                command="bd create ...",
+            ),
+        ),
+    )
+    result = run_beads_create("Title", "Desc")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsCreateError"
+    assert error.step_name == "io_ops.run_beads_create"
+    assert "failed to create" in str(error.context["stderr"])
+
+
+def test_run_beads_create_unparseable_stdout(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create returns IOFailure when stdout has no issue ID."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="",
+                stderr="",
+                command="bd create ...",
+            ),
+        ),
+    )
+    result = run_beads_create("Title", "Desc")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsCreateParseError"
+    assert error.step_name == "io_ops.run_beads_create"
+
+
+def test_run_beads_create_shell_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create propagates shell command IOFailure."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = run_beads_create("Title", "Desc")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err
+
+
+def test_run_beads_create_shell_safe(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create uses shlex.quote for safety."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ISSUE-1\n",
+                stderr="",
+                command="bd create ...",
+            ),
+        ),
+    )
+    run_beads_create(
+        'Title"; rm -rf /',
+        'Desc"; drop table',
+    )
+    cmd = mock_shell.call_args[0][0]
+    # shlex.quote wraps in single quotes
+    assert "rm -rf" not in cmd.split("'")[0]
+    assert "'" in cmd
+
+
+def test_run_beads_create_parses_first_line(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create parses issue ID from first non-empty stdout line."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ABC-42\nExtra output\n",
+                stderr="",
+                command="bd create ...",
+            ),
+        ),
+    )
+    result = run_beads_create("Title", "Desc")
+    assert isinstance(result, IOSuccess)
+    issue_id = unsafe_perform_io(result.unwrap())
+    assert issue_id == "ABC-42"
+
+
+def test_run_beads_create_whitespace_only_stdout(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_create returns IOFailure when stdout is whitespace only."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_create,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="  \n  \n",
+                stderr="",
+                command="bd create ...",
+            ),
+        ),
+    )
+    result = run_beads_create("Title", "Desc")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsCreateParseError"
+
+
+# --- _parse_beads_issue_id tests (Story 6.2) ---
+
+
+def test_parse_beads_issue_id_simple() -> None:
+    """_parse_beads_issue_id extracts plain ID."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        _parse_beads_issue_id,
+    )
+
+    assert _parse_beads_issue_id("ISSUE-123\n") == "ISSUE-123"
+
+
+def test_parse_beads_issue_id_with_prefix() -> None:
+    """_parse_beads_issue_id extracts ID after ': ' prefix."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        _parse_beads_issue_id,
+    )
+
+    assert _parse_beads_issue_id(
+        "Created issue: BEADS-42\n",
+    ) == "BEADS-42"
+
+
+def test_parse_beads_issue_id_empty() -> None:
+    """_parse_beads_issue_id returns empty for empty stdout."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        _parse_beads_issue_id,
+    )
+
+    assert _parse_beads_issue_id("") == ""
+
+
+def test_parse_beads_issue_id_whitespace_only() -> None:
+    """_parse_beads_issue_id returns empty for whitespace stdout."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        _parse_beads_issue_id,
+    )
+
+    assert _parse_beads_issue_id("  \n  \n") == ""
+
+
+def test_parse_beads_issue_id_colon_only() -> None:
+    """_parse_beads_issue_id returns the raw line when no ': ' found."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        _parse_beads_issue_id,
+    )
+
+    # After strip, "prefix:" has no ": " so returns the line itself
+    assert _parse_beads_issue_id("prefix:\n") == "prefix:"
+
+
+def test_parse_beads_issue_id_multiline() -> None:
+    """_parse_beads_issue_id uses first line only."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        _parse_beads_issue_id,
+    )
+
+    assert _parse_beads_issue_id(
+        "FIRST-1\nSECOND-2\n",
+    ) == "FIRST-1"

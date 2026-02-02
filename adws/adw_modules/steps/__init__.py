@@ -13,6 +13,9 @@ from adws.adw_modules.steps.build_feedback_context import (
     build_feedback_context,
 )
 from adws.adw_modules.steps.check_sdk_available import check_sdk_available
+from adws.adw_modules.steps.create_beads_issue import (
+    create_beads_issue,
+)
 from adws.adw_modules.steps.execute_shell_step import execute_shell_step
 from adws.adw_modules.steps.implement_step import implement_step
 from adws.adw_modules.steps.log_hook_event import (
@@ -45,6 +48,7 @@ __all__ = [
     "block_dangerous_command_safe",
     "build_feedback_context",
     "check_sdk_available",
+    "create_beads_issue",
     "execute_shell_step",
     "implement_step",
     "log_hook_event",

@@ -88,7 +88,7 @@ development_status:
   # Epic 6: BMAD-to-Beads Story Converter
   epic-6: in-progress
   6-1-bmad-markdown-parser: done
-  6-2-beads-issue-creator-with-workflow-tags: backlog
+  6-2-beads-issue-creator-with-workflow-tags: done
   6-3-bidirectional-tracking-and-convert-stories-to-beads-command: backlog
   epic-6-retrospective: optional
 

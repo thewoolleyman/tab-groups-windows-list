@@ -93,7 +93,16 @@ _CONVERT_STORIES_TO_BEADS = Workflow(
     name=WorkflowName.CONVERT_STORIES_TO_BEADS,
     description="Convert BMAD stories to Beads issues with workflow tags",
     dispatchable=False,
-    steps=[],  # Steps populated in Epic 6
+    steps=[
+        Step(
+            name="parse_bmad_story",
+            function="parse_bmad_story",
+        ),
+        Step(
+            name="create_beads_issue",
+            function="create_beads_issue",
+        ),
+    ],
 )
 
 _VERIFY = Workflow(

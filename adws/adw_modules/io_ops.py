@@ -653,6 +653,79 @@ def run_beads_update_notes(
     return result.bind(_check_exit)
 
 
+def _parse_beads_issue_id(stdout: str) -> str:
+    """Extract issue ID from bd create stdout.
+
+    Parses the first non-empty line of stdout. If the line
+    contains ": ", extracts the part after it. Returns
+    empty string if no ID can be parsed.
+    """
+    lines = stdout.strip().splitlines()
+    if not lines:
+        return ""
+    first_line = lines[0].strip()
+    if ": " in first_line:
+        return first_line.split(": ", 1)[1].strip()
+    return first_line
+
+
+def run_beads_create(
+    title: str,
+    description: str,
+) -> IOResult[str, PipelineError]:
+    """Create a Beads issue via bd create (NFR17, FR25).
+
+    Delegates to run_shell_command. Nonzero exit is
+    IOFailure with BeadsCreateError. Parses the issue
+    ID from stdout. Returns IOSuccess(issue_id) on
+    success, IOFailure on parse failure.
+    """
+    safe_title = shlex.quote(title)
+    safe_desc = shlex.quote(description)
+    cmd = (
+        f"bd create --title {safe_title}"
+        f" --description {safe_desc}"
+    )
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[str, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.run_beads_create",
+                    error_type="BeadsCreateError",
+                    message=(
+                        f"bd create failed: {sr.stderr}"
+                    ),
+                    context={
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        # Parse issue ID from first non-empty line
+        issue_id = _parse_beads_issue_id(sr.stdout)
+        if not issue_id:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.run_beads_create",
+                    error_type="BeadsCreateParseError",
+                    message=(
+                        "Could not parse issue ID"
+                        " from bd create output"
+                    ),
+                    context={
+                        "stdout": sr.stdout,
+                    },
+                ),
+            )
+        return IOSuccess(issue_id)
+
+    return result.bind(_check_exit)
+
+
 # --- Hook event logging io_ops (Story 5.1) ---
 
 

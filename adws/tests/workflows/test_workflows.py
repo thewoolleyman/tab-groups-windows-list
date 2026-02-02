@@ -397,6 +397,64 @@ def test_ivc_finalize_step_properties() -> None:
     assert step7.shell is True
 
 
+# --- Story 6.2: convert_stories_to_beads workflow composition ---
+
+
+def test_convert_stories_to_beads_registered() -> None:
+    """convert_stories_to_beads workflow is registered."""
+    wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
+    assert wf is not None
+    assert isinstance(wf, Workflow)
+    assert wf.name == WorkflowName.CONVERT_STORIES_TO_BEADS
+
+
+def test_convert_stories_to_beads_not_dispatchable() -> None:
+    """convert_stories_to_beads has dispatchable=False."""
+    wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
+    assert wf is not None
+    assert wf.dispatchable is False
+
+
+def test_convert_stories_to_beads_has_steps() -> None:
+    """convert_stories_to_beads has 2 steps."""
+    wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
+    assert wf is not None
+    assert len(wf.steps) == 2
+    for step in wf.steps:
+        assert isinstance(step, Step)
+
+
+def test_convert_stories_to_beads_step_names() -> None:
+    """convert_stories_to_beads steps are in correct order."""
+    wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
+    assert wf is not None
+    names = [s.name for s in wf.steps]
+    assert names == [
+        "parse_bmad_story",
+        "create_beads_issue",
+    ]
+
+
+def test_convert_stories_to_beads_step_functions() -> None:
+    """convert_stories_to_beads step functions match names."""
+    wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
+    assert wf is not None
+    functions = [s.function for s in wf.steps]
+    assert functions == [
+        "parse_bmad_story",
+        "create_beads_issue",
+    ]
+
+
+def test_convert_stories_to_beads_create_is_step_two() -> None:
+    """create_beads_issue is the second step in the workflow."""
+    wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
+    assert wf is not None
+    step2 = wf.steps[1]
+    assert step2.name == "create_beads_issue"
+    assert step2.function == "create_beads_issue"
+
+
 def test_ivc_registry_entry() -> None:
     """implement command in COMMAND_REGISTRY has correct workflow."""
     from adws.adw_modules.commands.registry import (  # noqa: PLC0415

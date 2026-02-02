@@ -25,6 +25,7 @@ from adws.adw_modules.steps import (
     block_dangerous_command,
     block_dangerous_command_safe,
     check_sdk_available,
+    create_beads_issue,
     execute_shell_step,
     log_hook_event,
     log_hook_event_safe,
@@ -202,6 +203,15 @@ class TestResolveStepFunction:
         assert (
             resolved_fn is block_dangerous_command_safe
         )
+
+    def test_resolve_create_beads_issue(self) -> None:
+        """create_beads_issue is in the registry."""
+        result = _resolve_step_function(
+            "create_beads_issue",
+        )
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is create_beads_issue
 
 
 # --- Task 1: run_step tests ---

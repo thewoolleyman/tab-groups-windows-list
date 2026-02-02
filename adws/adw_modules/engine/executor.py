@@ -16,6 +16,7 @@ from adws.adw_modules.steps import (
     block_dangerous_command,
     block_dangerous_command_safe,
     check_sdk_available,
+    create_beads_issue,
     execute_shell_step,
     implement_step,
     log_hook_event,
@@ -46,6 +47,7 @@ _STEP_REGISTRY: dict[str, StepFunction] = {
         block_dangerous_command_safe
     ),
     "check_sdk_available": check_sdk_available,
+    "create_beads_issue": create_beads_issue,
     "execute_shell_step": execute_shell_step,
     "implement_step": implement_step,
     "log_hook_event": log_hook_event,
