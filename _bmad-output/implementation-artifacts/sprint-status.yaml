@@ -66,7 +66,7 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Developer Commands & TDD Workflow
-  epic-4: in-progress
+  epic-4: done
   4-1-command-pattern-md-entry-points-and-python-module-wiring: done
   4-2-verify-command-entry-point: done
   4-3-prime-command-for-context-loading: done
@@ -74,7 +74,7 @@ development_status:
   4-5-write-failing-tests-step-red-phase: done
   4-6-verify-tests-fail-step-red-gate: done
   4-7-implement-and-refactor-steps-green-and-refactor-phases: done
-  4-8-implement-verify-close-workflow-and-implement-command: backlog
+  4-8-implement-verify-close-workflow-and-implement-command: done
   epic-4-retrospective: optional
 
   # Epic 5: Observability & Safety Hooks

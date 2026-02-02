@@ -18,7 +18,5 @@ Invoke this command to run the complete RED-GREEN-REFACTOR cycle with verificati
 This command delegates to the ADWS Python module:
 `uv run python -m adws.adw_modules.commands.dispatch implement`
 
-All testable logic lives in `adws/adw_modules/commands/` -- the .md file
+All testable logic lives in `adws/adw_modules/commands/` -- this .md file
 is the natural language entry point only (FR28).
-
-> **Note**: Full implementation in Story 4.8.

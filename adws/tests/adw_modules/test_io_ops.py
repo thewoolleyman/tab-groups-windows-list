@@ -30,6 +30,7 @@ from adws.adw_modules.io_ops import (
     load_command_workflow,
     read_file,
     read_prime_file,
+    run_beads_show,
     run_jest_tests,
     run_mypy_check,
     run_playwright_tests,
@@ -1431,3 +1432,88 @@ def test_run_beads_update_notes_failure(mocker) -> None:  # type: ignore[no-unty
     assert isinstance(error, PipelineError)
     assert error.error_type == "BeadsUpdateError"
     assert "BAD-2" in str(error.context)
+
+
+# --- run_beads_show tests (Story 4.8) ---
+
+
+def test_run_beads_show_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_show calls bd show and returns IOSuccess with stdout."""
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="Issue description content...",
+                stderr="",
+                command="bd show ISSUE-1",
+            ),
+        ),
+    )
+    result = run_beads_show("ISSUE-1")
+    assert isinstance(result, IOSuccess)
+    val = unsafe_perform_io(result.unwrap())
+    assert val == "Issue description content..."
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd show" in cmd
+    assert "ISSUE-1" in cmd
+
+
+def test_run_beads_show_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_show returns IOFailure on nonzero exit."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="not found",
+                command="bd show BAD-1",
+            ),
+        ),
+    )
+    result = run_beads_show("BAD-1")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsShowError"
+    assert "BAD-1" in str(error.context)
+    assert error.context["exit_code"] == 1
+    assert error.context["stderr"] == "not found"
+
+
+def test_run_beads_show_shell_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_show propagates shell command IOFailure."""
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = run_beads_show("X-1")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err
+
+
+def test_run_beads_show_shell_safe(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_show uses shlex.quote to prevent injection."""
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ok",
+                stderr="",
+                command="bd show x",
+            ),
+        ),
+    )
+    run_beads_show('X"; rm -rf / #')
+    cmd = mock_shell.call_args[0][0]
+    assert "rm -rf" not in cmd.split("'")[0]
+    assert "'" in cmd

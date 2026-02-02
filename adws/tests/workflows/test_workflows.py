@@ -261,3 +261,148 @@ def test_implement_close_no_finalize_step() -> None:
     names = [s.name for s in wf.steps]
     assert "close" not in names
     assert "finalize" not in names
+
+
+# --- Story 4.8: implement_verify_close workflow composition ---
+
+
+def test_implement_verify_close_step_names() -> None:
+    """implement_verify_close has 7 steps in correct order."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    names = [s.name for s in wf.steps]
+    assert names == [
+        "write_failing_tests",
+        "verify_tests_fail",
+        "implement",
+        "verify_tests_pass",
+        "refactor",
+        "verify_tests_pass_refactor",
+        "finalize",
+    ]
+
+
+def test_implement_verify_close_finalize_always_run() -> None:
+    """finalize step has always_run=True, others False."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    for step in wf.steps:
+        if step.name == "finalize":
+            assert step.always_run is True
+        else:
+            assert step.always_run is False
+
+
+def test_implement_verify_close_dispatchable() -> None:
+    """implement_verify_close has dispatchable=True."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    assert wf.dispatchable is True
+
+
+def test_implement_verify_close_verify_shell_commands() -> None:
+    """verify_tests_pass shell steps contain pytest and not enemy."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    for step in wf.steps:
+        if step.name in (
+            "verify_tests_pass",
+            "verify_tests_pass_refactor",
+        ):
+            assert "pytest" in step.command
+            assert "not enemy" in step.command
+
+
+def test_implement_verify_close_write_failing_tests_is_sdk() -> None:
+    """write_failing_tests is an SDK step (not shell)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step = wf.steps[0]
+    assert step.name == "write_failing_tests"
+    assert step.shell is False
+
+
+def test_implement_verify_close_implement_is_sdk() -> None:
+    """implement step is an SDK step (not shell)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step = wf.steps[2]
+    assert step.name == "implement"
+    assert step.shell is False
+
+
+def test_implement_verify_close_refactor_is_sdk() -> None:
+    """refactor step is an SDK step (not shell)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step = wf.steps[4]
+    assert step.name == "refactor"
+    assert step.shell is False
+
+
+# --- Story 4.8: Workflow composition -- phase tests (Task 7) ---
+
+
+def test_ivc_red_phase_composition() -> None:
+    """RED phase: write_failing_tests (SDK) then verify_tests_fail (SDK)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step1 = wf.steps[0]
+    step2 = wf.steps[1]
+    assert step1.name == "write_failing_tests"
+    assert step1.function == "write_failing_tests"
+    assert step1.shell is False
+    assert step2.name == "verify_tests_fail"
+    assert step2.function == "verify_tests_fail"
+    assert step2.shell is False
+
+
+def test_ivc_green_phase_composition() -> None:
+    """GREEN phase: implement (SDK) then verify_tests_pass (shell)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step3 = wf.steps[2]
+    step4 = wf.steps[3]
+    assert step3.name == "implement"
+    assert step3.function == "implement_step"
+    assert step3.shell is False
+    assert step4.name == "verify_tests_pass"
+    assert step4.shell is True
+    assert "pytest" in step4.command
+    assert "not enemy" in step4.command
+
+
+def test_ivc_refactor_phase_composition() -> None:
+    """REFACTOR phase: refactor (SDK) then verify_tests_pass_refactor (shell)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step5 = wf.steps[4]
+    step6 = wf.steps[5]
+    assert step5.name == "refactor"
+    assert step5.function == "refactor_step"
+    assert step5.shell is False
+    assert step6.name == "verify_tests_pass_refactor"
+    assert step6.shell is True
+    assert "pytest" in step6.command
+    assert "not enemy" in step6.command
+
+
+def test_ivc_finalize_step_properties() -> None:
+    """Finalize step: always_run=True, shell step placeholder."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_VERIFY_CLOSE)
+    assert wf is not None
+    step7 = wf.steps[6]
+    assert step7.name == "finalize"
+    assert step7.always_run is True
+    assert step7.shell is True
+
+
+def test_ivc_registry_entry() -> None:
+    """implement command in COMMAND_REGISTRY has correct workflow."""
+    from adws.adw_modules.commands.registry import (  # noqa: PLC0415
+        COMMAND_REGISTRY,
+    )
+
+    spec = COMMAND_REGISTRY.get("implement")
+    assert spec is not None
+    assert spec.workflow_name == "implement_verify_close"

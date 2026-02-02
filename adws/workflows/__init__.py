@@ -44,7 +44,49 @@ _IMPLEMENT_VERIFY_CLOSE = Workflow(
     name=WorkflowName.IMPLEMENT_VERIFY_CLOSE,
     description="Full TDD workflow: RED -> GREEN -> REFACTOR with verification",
     dispatchable=True,
-    steps=[],  # Steps populated in Epic 4
+    steps=[
+        Step(
+            name="write_failing_tests",
+            function="write_failing_tests",
+        ),
+        Step(
+            name="verify_tests_fail",
+            function="verify_tests_fail",
+        ),
+        Step(
+            name="implement",
+            function="implement_step",
+        ),
+        Step(  # noqa: S604
+            name="verify_tests_pass",
+            function="execute_shell_step",
+            shell=True,
+            command=(
+                "uv run pytest adws/tests/"
+                " -m 'not enemy'"
+            ),
+        ),
+        Step(
+            name="refactor",
+            function="refactor_step",
+        ),
+        Step(  # noqa: S604
+            name="verify_tests_pass_refactor",
+            function="execute_shell_step",
+            shell=True,
+            command=(
+                "uv run pytest adws/tests/"
+                " -m 'not enemy'"
+            ),
+        ),
+        Step(  # noqa: S604
+            name="finalize",
+            function="execute_shell_step",
+            shell=True,
+            command="echo 'finalize'",
+            always_run=True,
+        ),
+    ],
 )
 
 _CONVERT_STORIES_TO_BEADS = Workflow(

@@ -6,6 +6,9 @@ from returns.unsafe import unsafe_perform_io
 
 from adws.adw_modules.commands.build import BuildCommandResult
 from adws.adw_modules.commands.dispatch import run_command
+from adws.adw_modules.commands.implement import (
+    ImplementCommandResult,
+)
 from adws.adw_modules.commands.prime import PrimeContextResult
 from adws.adw_modules.commands.verify import VerifyCommandResult
 from adws.adw_modules.engine.types import Workflow
@@ -132,14 +135,14 @@ def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
 ) -> None:
     """run_command propagates execute failure for generic cmd."""
     fake_wf = Workflow(
-        name="implement_verify_close",
+        name="convert_stories_to_beads",
         description="test",
         steps=[],
     )
     exec_err = PipelineError(
-        step_name="implement",
+        step_name="convert",
         error_type="StepError",
-        message="implement failed",
+        message="convert failed",
     )
     mocker.patch(
         "adws.adw_modules.io_ops.load_command_workflow",
@@ -150,7 +153,9 @@ def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
         return_value=IOFailure(exec_err),
     )
     ctx = WorkflowContext()
-    result = run_command("implement", ctx)
+    result = run_command(
+        "convert_stories_to_beads", ctx,
+    )
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert error is exec_err
@@ -353,3 +358,115 @@ def test_dispatch_prime_still_works(  # type: ignore[no-untyped-def]
     out = unsafe_perform_io(result.unwrap())
     pr = out.outputs.get("prime_result")
     assert isinstance(pr, PrimeContextResult)
+
+
+# --- Implement dispatch tests (Story 4.8) ---
+
+
+def test_dispatch_implement_uses_specialized_handler(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('implement') routes to run_implement_command."""
+    fake_wf = Workflow(
+        name="implement_verify_close",
+        description="test",
+        steps=[],
+    )
+    result_ctx = WorkflowContext(
+        outputs={"done": True},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_show",
+        return_value=IOSuccess("Issue description"),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.execute_command_workflow",
+        return_value=IOSuccess(result_ctx),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_close",
+        return_value=IOSuccess(WorkflowContext()),
+    )
+    ctx = WorkflowContext(
+        inputs={"issue_id": "TEST-1"},
+    )
+    result = run_command("implement", ctx)
+    assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    assert isinstance(out, WorkflowContext)
+    ir = out.outputs.get("implement_result")
+    assert isinstance(ir, ImplementCommandResult)
+    assert ir.success is True
+    assert ir.finalize_action == "closed"
+
+
+def test_dispatch_implement_wraps_result(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('implement') wraps result in context."""
+    fake_wf = Workflow(
+        name="implement_verify_close",
+        description="test",
+        steps=[],
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.execute_command_workflow",
+        return_value=IOSuccess(WorkflowContext()),
+    )
+    ctx = WorkflowContext()
+    result = run_command("implement", ctx)
+    assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    assert isinstance(out, WorkflowContext)
+    ir = out.outputs.get("implement_result")
+    assert isinstance(ir, ImplementCommandResult)
+    assert ir.finalize_action == "skipped"
+
+
+def test_dispatch_implement_workflow_failure_wraps(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('implement') wraps wf failure as success."""
+    fake_wf = Workflow(
+        name="implement_verify_close",
+        description="test",
+        steps=[],
+    )
+    exec_err = PipelineError(
+        step_name="implement_step",
+        error_type="SdkCallError",
+        message="timeout",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_show",
+        return_value=IOSuccess("desc"),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.execute_command_workflow",
+        return_value=IOFailure(exec_err),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_update_notes",
+        return_value=IOSuccess(WorkflowContext()),
+    )
+    ctx = WorkflowContext(
+        inputs={"issue_id": "TEST-2"},
+    )
+    result = run_command("implement", ctx)
+    assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    ir = out.outputs.get("implement_result")
+    assert isinstance(ir, ImplementCommandResult)
+    assert ir.success is False

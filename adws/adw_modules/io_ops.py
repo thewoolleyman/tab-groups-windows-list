@@ -515,6 +515,42 @@ def execute_command_workflow(
 # --- Beads CLI io_ops (Story 4.4) ---
 
 
+def run_beads_show(
+    issue_id: str,
+) -> IOResult[str, PipelineError]:
+    """Read a Beads issue description via bd show (NFR17).
+
+    Delegates to run_shell_command. Nonzero exit is
+    IOFailure with BeadsShowError. Returns stdout on success.
+    """
+    safe_id = shlex.quote(issue_id)
+    cmd = f"bd show {safe_id}"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[str, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.run_beads_show",
+                    error_type="BeadsShowError",
+                    message=(
+                        f"bd show failed for"
+                        f" {issue_id}: {sr.stderr}"
+                    ),
+                    context={
+                        "issue_id": issue_id,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr.stdout)
+
+    return result.bind(_check_exit)
+
+
 def run_beads_close(
     issue_id: str,
     reason: str,
