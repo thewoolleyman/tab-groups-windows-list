@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from adws.adw_modules.types import (
     AdwsRequest,
     AdwsResponse,
+    SecurityLogEntry,
     ShellResult,
     VerifyFeedback,
     VerifyResult,
@@ -407,3 +408,79 @@ def test_verify_feedback_field_access() -> None:
     assert vf.raw_output == "raw"
     assert vf.attempt == 3
     assert vf.step_name == "run_playwright_step"
+
+
+# --- SecurityLogEntry Tests (Story 5.4) ---
+
+
+def test_security_log_entry_construction() -> None:
+    """SecurityLogEntry stores all fields correctly."""
+    entry = SecurityLogEntry(
+        timestamp="2026-02-02T10:30:00+00:00",
+        command="rm -rf /",
+        pattern_name="rm_rf_root",
+        reason="Recursive force-delete of root filesystem",
+        alternative="Use 'rm -rf ./specific-directory'",
+        session_id="session-abc123",
+        action="blocked",
+    )
+    assert entry.timestamp == "2026-02-02T10:30:00+00:00"
+    assert entry.command == "rm -rf /"
+    assert entry.pattern_name == "rm_rf_root"
+    assert entry.reason == "Recursive force-delete of root filesystem"
+    assert entry.alternative == "Use 'rm -rf ./specific-directory'"
+    assert entry.session_id == "session-abc123"
+    assert entry.action == "blocked"
+
+
+def test_security_log_entry_default_action() -> None:
+    """SecurityLogEntry defaults action to 'blocked'."""
+    entry = SecurityLogEntry(
+        timestamp="2026-02-02T10:30:00+00:00",
+        command="rm -rf /",
+        pattern_name="rm_rf_root",
+        reason="Dangerous",
+        alternative="Safer approach",
+        session_id="sess-1",
+    )
+    assert entry.action == "blocked"
+
+
+def test_security_log_entry_is_frozen() -> None:
+    """SecurityLogEntry is a frozen dataclass."""
+    entry = SecurityLogEntry(
+        timestamp="2026-02-02T10:30:00+00:00",
+        command="rm -rf /",
+        pattern_name="rm_rf_root",
+        reason="Dangerous",
+        alternative="Safer approach",
+        session_id="sess-1",
+    )
+    assert dataclasses.is_dataclass(entry)
+    assert type(entry).__dataclass_params__.frozen  # type: ignore[attr-defined]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        entry.command = "other"  # type: ignore[misc]
+
+
+def test_security_log_entry_to_jsonl() -> None:
+    """SecurityLogEntry.to_jsonl serializes to compact JSON."""
+    entry = SecurityLogEntry(
+        timestamp="2026-02-02T10:30:00+00:00",
+        command="rm -rf /",
+        pattern_name="rm_rf_root",
+        reason="Recursive force-delete",
+        alternative="Use explicit path",
+        session_id="sess-1",
+        action="blocked",
+    )
+    jsonl = entry.to_jsonl()
+    assert '"timestamp":"2026-02-02T10:30:00+00:00"' in jsonl
+    assert '"command":"rm -rf /"' in jsonl
+    assert '"pattern_name":"rm_rf_root"' in jsonl
+    assert '"reason":"Recursive force-delete"' in jsonl
+    assert '"alternative":"Use explicit path"' in jsonl
+    assert '"session_id":"sess-1"' in jsonl
+    assert '"action":"blocked"' in jsonl
+    # Single line, no extra spaces
+    assert "\n" not in jsonl
+    assert ": " not in jsonl

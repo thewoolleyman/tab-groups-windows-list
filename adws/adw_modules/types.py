@@ -133,6 +133,23 @@ class FileTrackEntry:
         return json.dumps(asdict(self), separators=(",", ":"))
 
 
+@dataclass(frozen=True)
+class SecurityLogEntry:
+    """Structured security log entry for audit logging (FR38)."""
+
+    timestamp: str
+    command: str
+    pattern_name: str
+    reason: str
+    alternative: str
+    session_id: str
+    action: str = "blocked"
+
+    def to_jsonl(self) -> str:
+        """Serialize to single-line JSON for JSONL format."""
+        return json.dumps(asdict(self), separators=(",", ":"))
+
+
 class AdwsRequest(BaseModel):
     """Request payload for SDK boundary calls."""
 

@@ -5,6 +5,10 @@ from adws.adw_modules.steps.accumulate_verify_feedback import (
 from adws.adw_modules.steps.add_verify_feedback import (
     add_verify_feedback_to_context,
 )
+from adws.adw_modules.steps.block_dangerous_command import (
+    block_dangerous_command,
+    block_dangerous_command_safe,
+)
 from adws.adw_modules.steps.build_feedback_context import (
     build_feedback_context,
 )
@@ -34,6 +38,8 @@ from adws.adw_modules.steps.write_failing_tests import (
 __all__ = [
     "accumulate_verify_feedback",
     "add_verify_feedback_to_context",
+    "block_dangerous_command",
+    "block_dangerous_command_safe",
     "build_feedback_context",
     "check_sdk_available",
     "execute_shell_step",

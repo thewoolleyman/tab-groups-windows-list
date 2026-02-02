@@ -42,6 +42,7 @@ from adws.adw_modules.io_ops import (
     sleep_seconds,
     write_context_bundle,
     write_hook_log,
+    write_security_log,
     write_stderr,
 )
 from adws.adw_modules.types import (
@@ -2137,3 +2138,156 @@ def test_list_context_bundles_permission_error(
     assert error.step_name == (
         "io_ops.list_context_bundles"
     )
+
+
+# --- write_security_log tests (Story 5.4) ---
+
+
+def test_write_security_log_success(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_security_log appends entry_json to session file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_security_log(
+            "session-abc123",
+            '{"command":"rm -rf /"}',
+        )
+    assert isinstance(result, IOSuccess)
+    assert unsafe_perform_io(result.unwrap()) is None
+    log_file = (
+        tmp_path / "agents" / "security_logs"
+        / "session-abc123.jsonl"
+    )
+    assert log_file.exists()
+    content = log_file.read_text()
+    assert content == '{"command":"rm -rf /"}\n'
+
+
+def test_write_security_log_appends_to_existing(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_security_log appends to existing session file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    log_dir = tmp_path / "agents" / "security_logs"
+    log_dir.mkdir(parents=True)
+    log_file = log_dir / "sess-1.jsonl"
+    log_file.write_text('{"first":"entry"}\n')
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_security_log(
+            "sess-1", '{"second":"entry"}',
+        )
+    assert isinstance(result, IOSuccess)
+    content = log_file.read_text()
+    assert content == (
+        '{"first":"entry"}\n{"second":"entry"}\n'
+    )
+
+
+def test_write_security_log_creates_directory(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_security_log creates agents/security_logs/ if missing."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    log_dir = tmp_path / "agents" / "security_logs"
+    assert not log_dir.exists()
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_security_log(
+            "sess-new", '{"data":"val"}',
+        )
+    assert isinstance(result, IOSuccess)
+    assert log_dir.exists()
+
+
+def test_write_security_log_permission_error(
+    mocker: Any,
+) -> None:
+    """write_security_log returns IOFailure on PermissionError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    mock_path = mocker.MagicMock()
+    mock_path.__truediv__ = mocker.MagicMock(
+        return_value=mock_path,
+    )
+    mock_path.mkdir.side_effect = PermissionError(
+        "no permission",
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=mock_path,
+    ):
+        result = write_security_log(
+            "sess-1", '{"a":"b"}',
+        )
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "SecurityLogWriteError"
+    assert error.step_name == (
+        "io_ops.write_security_log"
+    )
+
+
+def test_write_security_log_os_error_on_write(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_security_log returns IOFailure on file write OSError."""
+    from pathlib import Path as PathCls  # noqa: PLC0415
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch.object(
+            PathCls, "open",
+            side_effect=OSError("disk full"),
+        )
+        result = write_security_log(
+            "sess-1", '{"a":"b"}',
+        )
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "SecurityLogWriteError"
+    assert error.step_name == (
+        "io_ops.write_security_log"
+    )
+    assert "disk full" in error.message
+
+
+def test_write_security_log_path_traversal_blocked(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """write_security_log sanitizes traversal session_ids."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_security_log(
+            "../../etc/passwd",
+            '{"event":"test"}',
+        )
+    assert isinstance(result, IOSuccess)
+    # File should be in security_logs/, NOT traversing out
+    log_dir = tmp_path / "agents" / "security_logs"
+    assert (log_dir / "passwd.jsonl").exists()
+    # Verify no file was written outside security_logs
+    assert not (tmp_path / "etc").exists()

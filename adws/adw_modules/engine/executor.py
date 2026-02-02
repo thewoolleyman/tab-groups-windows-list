@@ -13,6 +13,8 @@ from returns.unsafe import unsafe_perform_io
 from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.io_ops import sleep_seconds
 from adws.adw_modules.steps import (
+    block_dangerous_command,
+    block_dangerous_command_safe,
     check_sdk_available,
     execute_shell_step,
     implement_step,
@@ -38,6 +40,10 @@ if TYPE_CHECKING:
     from adws.adw_modules.types import WorkflowContext
 
 _STEP_REGISTRY: dict[str, StepFunction] = {
+    "block_dangerous_command": block_dangerous_command,
+    "block_dangerous_command_safe": (
+        block_dangerous_command_safe
+    ),
     "check_sdk_available": check_sdk_available,
     "execute_shell_step": execute_shell_step,
     "implement_step": implement_step,

@@ -22,6 +22,8 @@ from adws.adw_modules.engine.executor import (
 from adws.adw_modules.engine.types import Step, Workflow
 from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.steps import (
+    block_dangerous_command,
+    block_dangerous_command_safe,
     check_sdk_available,
     execute_shell_step,
     log_hook_event,
@@ -176,6 +178,30 @@ class TestResolveStepFunction:
         assert isinstance(result, IOSuccess)
         resolved_fn = unsafe_perform_io(result.unwrap())
         assert resolved_fn is track_file_operation_safe
+
+    def test_resolve_block_dangerous_command(
+        self,
+    ) -> None:
+        """block_dangerous_command is in the registry."""
+        result = _resolve_step_function(
+            "block_dangerous_command",
+        )
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is block_dangerous_command
+
+    def test_resolve_block_dangerous_command_safe(
+        self,
+    ) -> None:
+        """block_dangerous_command_safe is in the registry."""
+        result = _resolve_step_function(
+            "block_dangerous_command_safe",
+        )
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert (
+            resolved_fn is block_dangerous_command_safe
+        )
 
 
 # --- Task 1: run_step tests ---

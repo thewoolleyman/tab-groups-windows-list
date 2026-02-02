@@ -808,6 +808,43 @@ def list_context_bundles() -> IOResult[
     return IOSuccess(bundles)
 
 
+def write_security_log(
+    session_id: str,
+    entry_json: str,
+) -> IOResult[None, PipelineError]:
+    """Append security log JSONL to session-specific file (FR38).
+
+    Creates agents/security_logs/ directory if it does not
+    exist. Appends entry_json + newline to the file named
+    <session_id>.jsonl. Returns IOSuccess(None) on success.
+    Sanitizes session_id to prevent path traversal.
+    """
+    try:
+        safe_id = _sanitize_session_id(session_id)
+        root = _find_project_root()
+        log_dir = root / "agents" / "security_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / f"{safe_id}.jsonl"
+        with log_file.open("a") as f:
+            f.write(entry_json + "\n")
+    except (PermissionError, OSError) as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_security_log",
+                error_type="SecurityLogWriteError",
+                message=(
+                    f"Failed to write security log"
+                    f" for session {session_id}:"
+                    f" {exc}"
+                ),
+                context={
+                    "session_id": session_id,
+                },
+            ),
+        )
+    return IOSuccess(None)
+
+
 def write_stderr(
     message: str,
 ) -> IOResult[None, PipelineError]:
