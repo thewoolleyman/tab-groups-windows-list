@@ -22,6 +22,22 @@ class VerifyResult:
 
 
 @dataclass(frozen=True)
+class VerifyFeedback:
+    """Structured feedback from a failed verify attempt.
+
+    Captures which tool failed, what errors occurred, and which
+    attempt this represents. Used for accumulation across
+    verify-implement retry cycles (FR16, FR17).
+    """
+
+    tool_name: str
+    errors: list[str] = field(default_factory=list)
+    raw_output: str = ""
+    attempt: int = 1
+    step_name: str = ""
+
+
+@dataclass(frozen=True)
 class ShellResult:
     """Result of a shell command execution."""
 

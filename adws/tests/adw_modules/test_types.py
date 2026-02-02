@@ -8,6 +8,7 @@ from adws.adw_modules.types import (
     AdwsRequest,
     AdwsResponse,
     ShellResult,
+    VerifyFeedback,
     VerifyResult,
     WorkflowContext,
 )
@@ -343,3 +344,66 @@ def test_verify_result_errors_default_factory() -> None:
     assert vr1.errors is not vr2.errors
     assert vr1.errors == []
     assert vr2.errors == []
+
+
+# --- VerifyFeedback Tests (Story 3.3) ---
+
+
+def test_verify_feedback_construction_all_fields() -> None:
+    """RED: VerifyFeedback does not exist yet."""
+    vf = VerifyFeedback(
+        tool_name="jest",
+        errors=["FAIL src/test.ts"],
+        raw_output="FAIL src/test.ts\n1 test failed",
+        attempt=2,
+        step_name="run_jest_step",
+    )
+    assert vf.tool_name == "jest"
+    assert vf.errors == ["FAIL src/test.ts"]
+    assert vf.raw_output == "FAIL src/test.ts\n1 test failed"
+    assert vf.attempt == 2
+    assert vf.step_name == "run_jest_step"
+
+
+def test_verify_feedback_defaults() -> None:
+    """RED: VerifyFeedback does not exist yet."""
+    vf = VerifyFeedback(tool_name="ruff")
+    assert vf.tool_name == "ruff"
+    assert vf.errors == []
+    assert vf.raw_output == ""
+    assert vf.attempt == 1
+    assert vf.step_name == ""
+
+
+def test_verify_feedback_is_frozen() -> None:
+    """RED: VerifyFeedback does not exist yet."""
+    vf = VerifyFeedback(tool_name="mypy")
+    assert dataclasses.is_dataclass(vf)
+    assert type(vf).__dataclass_params__.frozen  # type: ignore[attr-defined]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        vf.tool_name = "other"  # type: ignore[misc]
+
+
+def test_verify_feedback_errors_default_factory() -> None:
+    """RED: Each instance gets its own errors list."""
+    vf1 = VerifyFeedback(tool_name="jest")
+    vf2 = VerifyFeedback(tool_name="jest")
+    assert vf1.errors is not vf2.errors
+    assert vf1.errors == []
+    assert vf2.errors == []
+
+
+def test_verify_feedback_field_access() -> None:
+    """RED: Verify all fields are accessible."""
+    vf = VerifyFeedback(
+        tool_name="playwright",
+        errors=["err1", "err2"],
+        raw_output="raw",
+        attempt=3,
+        step_name="run_playwright_step",
+    )
+    assert vf.tool_name == "playwright"
+    assert len(vf.errors) == 2
+    assert vf.raw_output == "raw"
+    assert vf.attempt == 3
+    assert vf.step_name == "run_playwright_step"
