@@ -36,7 +36,16 @@ class WorkflowContext:
         return replace(self, feedback=[*self.feedback, entry])
 
     def promote_outputs_to_inputs(self) -> WorkflowContext:
-        """Merge outputs into inputs and clear outputs for the next step."""
+        """Merge outputs into inputs and clear outputs for the next step.
+
+        Raises:
+            ValueError: If any output key already exists in inputs.
+        """
+        collisions = set(self.inputs.keys()) & set(self.outputs.keys())
+        if collisions:
+            msg = f"Collision detected: outputs {collisions} already exist in inputs"
+            raise ValueError(msg)
+
         return replace(
             self,
             inputs={**self.inputs, **self.outputs},

@@ -1,6 +1,6 @@
 # Story 2.1: Error Types & WorkflowContext
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -157,18 +157,24 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - PipelineError: Added `to_dict()` using `dataclasses.asdict()` for JSON-serializable output, and `__str__` with format `PipelineError[step_name] error_type: message | context={...}`
 - WorkflowContext: Added `add_feedback(entry)` for feedback accumulation (FR16), `promote_outputs_to_inputs()` for step-to-step context propagation (FR3), and `merge_outputs(new_outputs)` for merging step outputs
 - All methods preserve frozen immutability -- return new instances via `dataclasses.replace()`
-- 44 tests total (14 new), 100% line + branch coverage
-- mypy strict: 22 source files, no issues
+- 47 tests total (3 new for review fixes), 100% line + branch coverage
+- mypy strict: 23 source files, no issues
 - ruff ALL: zero violations
 
 ### Change Log
 
 - 2026-02-01: Story created with comprehensive context from Epic 1 artifacts, architecture, and PRD analysis
 - 2026-02-01: Implemented all tasks via TDD (RED/GREEN/REFACTOR). 14 new tests added. All quality gates pass.
+- 2026-02-01: Applied code review fixes (Story 2.1):
+  - Fixed `PipelineError.to_dict()` to safely handle non-serializable context values
+  - Fixed `PipelineError.__str__` to truncate long contexts (>500 chars)
+  - Fixed `WorkflowContext.promote_outputs_to_inputs()` to raise `ValueError` on collision for data safety
+  - Added new test file `adws/tests/adw_modules/test_fixes_story_2_1.py`
 
 ### File List
 
-- `adws/adw_modules/errors.py` -- Modified (added `to_dict()`, `__str__` to PipelineError)
-- `adws/adw_modules/types.py` -- Modified (added `add_feedback()`, `promote_outputs_to_inputs()`, `merge_outputs()` to WorkflowContext)
+- `adws/adw_modules/errors.py` -- Modified (added `to_dict()`, `__str__` to PipelineError; fixes for serialization/logging)
+- `adws/adw_modules/types.py` -- Modified (added `add_feedback()`, `promote_outputs_to_inputs()`, `merge_outputs()` to WorkflowContext; fix for collision)
 - `adws/tests/adw_modules/test_errors.py` -- Modified (5 new tests: to_dict fields, empty context, JSON serializable, str format, str with context)
 - `adws/tests/adw_modules/test_types.py` -- Modified (10 new tests: add_feedback x3, promote_outputs x3, merge_outputs x4)
+- `adws/tests/adw_modules/test_fixes_story_2_1.py` -- Created (3 new tests for review findings)

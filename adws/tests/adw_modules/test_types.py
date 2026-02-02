@@ -1,6 +1,8 @@
 """Tests for WorkflowContext and shared types."""
 import dataclasses
 
+import pytest
+
 from adws.adw_modules.types import WorkflowContext
 
 
@@ -102,14 +104,14 @@ def test_workflow_context_promote_outputs_to_inputs() -> None:
     assert updated is not ctx
 
 
-def test_workflow_context_promote_outputs_overwrites_conflicting_inputs() -> None:
-    """RED: promote_outputs_to_inputs does not exist yet."""
+def test_workflow_context_promote_outputs_raises_on_conflicting_inputs() -> None:
+    """Test promote_outputs_to_inputs raises ValueError on key collision."""
     ctx = WorkflowContext(
         inputs={"key": "old"},
         outputs={"key": "new"},
     )
-    updated = ctx.promote_outputs_to_inputs()
-    assert updated.inputs == {"key": "new"}
+    with pytest.raises(ValueError, match="Collision detected"):
+        ctx.promote_outputs_to_inputs()
 
 
 def test_workflow_context_promote_outputs_empty() -> None:
