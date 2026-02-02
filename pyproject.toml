@@ -36,10 +36,10 @@ select = ["ALL"]
 ignore = ["D", "COM812", "ISC001"]
 
 [tool.ruff.lint.per-file-ignores]
-"adws/tests/**/*.py" = ["S101", "PLR2004", "ANN"]
+"adws/tests/**/*.py" = ["S101", "PLR2004", "ANN", "ARG001"]
 
 [tool.coverage.run]
-omit = ["adws/tests/conftest.py"]
+omit = ["adws/tests/conftest.py", "adws/tests/enemy/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["adws/tests"]

@@ -3,11 +3,24 @@
 This is the single mock point for the entire test suite.
 Steps never import I/O directly; they call io_ops functions.
 """
-from pathlib import Path
+from __future__ import annotations
 
+import asyncio
+from typing import TYPE_CHECKING
+
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKError,
+    ResultMessage,
+    query,
+)
 from returns.io import IOFailure, IOResult, IOSuccess
 
 from adws.adw_modules.errors import PipelineError
+from adws.adw_modules.types import AdwsRequest, AdwsResponse
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def read_file(path: Path) -> IOResult[str, PipelineError]:
@@ -58,3 +71,63 @@ def check_sdk_import() -> IOResult[bool, PipelineError]:
                 context={},
             ),
         )
+
+
+async def _execute_sdk_call_async(
+    request: AdwsRequest,
+) -> AdwsResponse:
+    """Internal async helper for SDK call."""
+    options = ClaudeAgentOptions(
+        system_prompt=request.system_prompt,
+        model=request.model,
+        allowed_tools=request.allowed_tools or [],
+        disallowed_tools=request.disallowed_tools or [],
+        max_turns=request.max_turns,
+        permission_mode=request.permission_mode,  # type: ignore[arg-type]
+    )
+
+    result_msg: ResultMessage | None = None
+    async for message in query(prompt=request.prompt, options=options):
+        if isinstance(message, ResultMessage):
+            result_msg = message
+
+    if result_msg is None:
+        msg = "No ResultMessage received from SDK"
+        raise ValueError(msg)
+
+    return AdwsResponse(
+        result=result_msg.result,
+        cost_usd=result_msg.total_cost_usd,
+        duration_ms=result_msg.duration_ms,
+        session_id=result_msg.session_id,
+        is_error=result_msg.is_error,
+        num_turns=result_msg.num_turns,
+    )
+
+
+def execute_sdk_call(
+    request: AdwsRequest,
+) -> IOResult[AdwsResponse, PipelineError]:
+    """Execute SDK call. Synchronous wrapper around async SDK."""
+    try:
+        response = asyncio.run(_execute_sdk_call_async(request))
+    except ValueError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.execute_sdk_call",
+                error_type="NoResultError",
+                message=str(exc),
+                context={"prompt": request.prompt},
+            ),
+        )
+    except ClaudeSDKError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.execute_sdk_call",
+                error_type=type(exc).__name__,
+                message=str(exc),
+                context={"prompt": request.prompt},
+            ),
+        )
+    else:
+        return IOSuccess(response)

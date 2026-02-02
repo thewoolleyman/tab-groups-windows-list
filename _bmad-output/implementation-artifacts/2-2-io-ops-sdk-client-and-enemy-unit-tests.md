@@ -1,6 +1,6 @@
 # Story 2.2: io_ops SDK Client & Enemy Unit Tests
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,32 +24,32 @@ so that pipeline code interacts with Claude exclusively through a testable I/O b
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Add Pydantic boundary models to types.py (AC: #2)
-  - [ ] 1.1 RED: Write tests for `AdwsRequest` model construction, validation, and defaults
-  - [ ] 1.2 GREEN: Implement `AdwsRequest` Pydantic model in types.py
-  - [ ] 1.3 RED: Write tests for `AdwsResponse` model construction, defaults, and error state
-  - [ ] 1.4 GREEN: Implement `AdwsResponse` Pydantic model in types.py
-  - [ ] 1.5 REFACTOR: Clean up, verify 100% coverage
+- [x] Task 1: Add Pydantic boundary models to types.py (AC: #2)
+  - [x] 1.1 RED: Write tests for `AdwsRequest` model construction, validation, and defaults
+  - [x] 1.2 GREEN: Implement `AdwsRequest` Pydantic model in types.py
+  - [x] 1.3 RED: Write tests for `AdwsResponse` model construction, defaults, and error state
+  - [x] 1.4 GREEN: Implement `AdwsResponse` Pydantic model in types.py
+  - [x] 1.5 REFACTOR: Clean up, verify 100% coverage
 
-- [ ] Task 2: Implement execute_sdk_call in io_ops.py (AC: #1)
-  - [ ] 2.1 RED: Write unit tests for `execute_sdk_call` success path (mock SDK)
-  - [ ] 2.2 GREEN: Implement `execute_sdk_call` -- translate AdwsRequest to SDK types, call SDK, translate response to AdwsResponse
-  - [ ] 2.3 RED: Write unit tests for `execute_sdk_call` error paths (SDK errors, missing API key, etc.)
-  - [ ] 2.4 GREEN: Implement error handling -- catch SDK exceptions, return IOFailure with PipelineError
-  - [ ] 2.5 REFACTOR: Clean up, verify 100% coverage
+- [x] Task 2: Implement execute_sdk_call in io_ops.py (AC: #1)
+  - [x] 2.1 RED: Write unit tests for `execute_sdk_call` success path (mock SDK)
+  - [x] 2.2 GREEN: Implement `execute_sdk_call` -- translate AdwsRequest to SDK types, call SDK, translate response to AdwsResponse
+  - [x] 2.3 RED: Write unit tests for `execute_sdk_call` error paths (SDK errors, missing API key, etc.)
+  - [x] 2.4 GREEN: Implement error handling -- catch SDK exceptions, return IOFailure with PipelineError
+  - [x] 2.5 REFACTOR: Clean up, verify 100% coverage
 
-- [ ] Task 3: Write Enemy Unit Tests (AC: #3, #4)
-  - [ ] 3.1 RED: Write EUT for `execute_sdk_call` full round-trip (REAL SDK, REAL API)
-  - [ ] 3.2 GREEN: Ensure EUT passes with real ANTHROPIC_API_KEY
-  - [ ] 3.3 RED: Write EUT for `execute_sdk_call` error handling (invalid model)
-  - [ ] 3.4 GREEN: Ensure error EUT passes
-  - [ ] 3.5 REFACTOR: Clean up, verify all quality gates
+- [x] Task 3: Write Enemy Unit Tests (AC: #3, #4)
+  - [x] 3.1 RED: Write EUT for `execute_sdk_call` full round-trip (REAL SDK, REAL API)
+  - [x] 3.2 GREEN: Ensure EUT passes with real ANTHROPIC_API_KEY
+  - [x] 3.3 RED: Write EUT for `execute_sdk_call` error handling (invalid model)
+  - [x] 3.4 GREEN: Ensure error EUT passes
+  - [x] 3.5 REFACTOR: Clean up, verify all quality gates
 
-- [ ] Task 4: Verify full integration and quality gates (AC: #5)
-  - [ ] 4.1 Run `uv run pytest adws/tests/ -m "not enemy"` -- all unit tests pass, 100% coverage
-  - [ ] 4.2 Run `uv run pytest adws/tests/ -m enemy` -- all EUTs pass (requires ANTHROPIC_API_KEY)
-  - [ ] 4.3 Run `uv run mypy adws/` -- strict mode passes
-  - [ ] 4.4 Run `uv run ruff check adws/` -- zero violations
+- [x] Task 4: Verify full integration and quality gates (AC: #5)
+  - [x] 4.1 Run `uv run pytest adws/tests/ -m "not enemy"` -- all unit tests pass, 100% coverage
+  - [x] 4.2 Run `uv run pytest adws/tests/ -m enemy` -- all EUTs pass (requires ANTHROPIC_API_KEY)
+  - [x] 4.3 Run `uv run mypy adws/` -- strict mode passes
+  - [x] 4.4 Run `uv run ruff check adws/` -- zero violations
 
 ## Dev Notes
 
@@ -313,22 +313,32 @@ From Story 1.2 learnings:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+- check_sdk_import_failure test required rework: top-level SDK imports in io_ops.py meant module reload approach no longer viable; switched to builtins.__import__ patching
+- Consolidated 7 return statements in execute_sdk_call to 3 by using base ClaudeSDKError catch-all (resolves PLR0911)
+
 ### Completion Notes List
+
+- Task 1: Added AdwsRequest and AdwsResponse frozen Pydantic models to types.py with ConfigDict(frozen=True), proper defaults, and full test coverage (10 new tests)
+- Task 2: Implemented execute_sdk_call in io_ops.py as synchronous wrapper around async SDK query() function. Bridges async/sync via asyncio.run(). Returns IOResult[AdwsResponse, PipelineError]. Catches ValueError (no result) and ClaudeSDKError (all SDK exceptions). 8 new unit tests covering success, options passing, no-result, and all 5 SDK error types
+- Task 3: Created adws/tests/enemy/ directory with 2 EUTs: full round-trip and invalid model. Tests skip without ANTHROPIC_API_KEY, excluded from coverage measurement
+- Task 4: All quality gates pass: 65 unit tests, 100% coverage, mypy strict clean, ruff zero violations
+- Refactored check_sdk_import_failure test to use builtins.__import__ patching instead of module reload (compatible with new top-level SDK imports)
 
 ### Change Log
 
 - 2026-02-01: Story created with comprehensive context from all planning artifacts, SDK API research, and previous story intelligence
+- 2026-02-01: Implemented all 4 tasks via TDD red-green-refactor. 65 tests pass, 100% coverage, mypy/ruff clean
 
 ### File List
 
-- `adws/adw_modules/types.py` -- Modified (add AdwsRequest, AdwsResponse Pydantic models)
-- `adws/adw_modules/io_ops.py` -- Modified (add execute_sdk_call function)
-- `adws/tests/adw_modules/test_io_ops.py` -- Modified (add unit tests for execute_sdk_call)
-- `adws/tests/adw_modules/test_types.py` -- Modified (add tests for AdwsRequest, AdwsResponse)
+- `adws/adw_modules/types.py` -- Modified (added AdwsRequest, AdwsResponse Pydantic models with frozen config)
+- `adws/adw_modules/io_ops.py` -- Modified (added execute_sdk_call, _execute_sdk_call_async; added SDK imports; moved Path to TYPE_CHECKING)
+- `adws/tests/adw_modules/test_io_ops.py` -- Modified (added 8 execute_sdk_call tests, reworked check_sdk_import_failure test, added SDK imports)
+- `adws/tests/adw_modules/test_types.py` -- Modified (added 10 tests for AdwsRequest/AdwsResponse, moved imports to top-level)
 - `adws/tests/enemy/__init__.py` -- Created (new test directory)
-- `adws/tests/enemy/test_sdk_proxy.py` -- Created (Enemy Unit Tests)
-- `pyproject.toml` -- Modified (coverage omit for enemy tests)
+- `adws/tests/enemy/test_sdk_proxy.py` -- Created (2 Enemy Unit Tests for execute_sdk_call)
+- `pyproject.toml` -- Modified (added enemy tests to coverage omit, added ARG001 to test ignores)

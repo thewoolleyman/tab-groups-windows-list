@@ -2,8 +2,9 @@
 import dataclasses
 
 import pytest
+from pydantic import BaseModel
 
-from adws.adw_modules.types import WorkflowContext
+from adws.adw_modules.types import AdwsRequest, AdwsResponse, WorkflowContext
 
 
 def test_workflow_context_construction() -> None:
@@ -155,3 +156,112 @@ def test_workflow_context_merge_outputs_empty() -> None:
     ctx = WorkflowContext(outputs={"a": 1})
     updated = ctx.merge_outputs({})
     assert updated.outputs == {"a": 1}
+
+
+# --- AdwsRequest Tests ---
+
+
+def test_adws_request_construction_all_fields() -> None:
+    """RED: AdwsRequest does not exist yet."""
+    req = AdwsRequest(
+        model="claude-sonnet-4-20250514",
+        system_prompt="You are helpful.",
+        prompt="Hello",
+        allowed_tools=["bash"],
+        disallowed_tools=["web"],
+        max_turns=5,
+        permission_mode="acceptEdits",
+    )
+    assert req.model == "claude-sonnet-4-20250514"
+    assert req.system_prompt == "You are helpful."
+    assert req.prompt == "Hello"
+    assert req.allowed_tools == ["bash"]
+    assert req.disallowed_tools == ["web"]
+    assert req.max_turns == 5
+    assert req.permission_mode == "acceptEdits"
+
+
+def test_adws_request_defaults() -> None:
+    """RED: AdwsRequest does not exist yet."""
+    req = AdwsRequest(system_prompt="sys", prompt="hello")
+    assert req.model == "claude-sonnet-4-20250514"
+    assert req.allowed_tools is None
+    assert req.disallowed_tools is None
+    assert req.max_turns is None
+    assert req.permission_mode is None
+
+
+def test_adws_request_is_frozen() -> None:
+    """RED: AdwsRequest does not exist yet."""
+    req = AdwsRequest(system_prompt="sys", prompt="hello")
+    with pytest.raises(Exception):  # noqa: B017, PT011
+        req.model = "other"
+
+
+def test_adws_request_validation_missing_required() -> None:
+    """RED: AdwsRequest does not exist yet."""
+    with pytest.raises(Exception):  # noqa: B017, PT011
+        AdwsRequest()  # type: ignore[call-arg]
+
+
+def test_adws_request_is_pydantic_model() -> None:
+    """RED: AdwsRequest does not exist yet."""
+    assert issubclass(AdwsRequest, BaseModel)
+
+
+# --- AdwsResponse Tests ---
+
+
+def test_adws_response_construction_all_fields() -> None:
+    """RED: AdwsResponse does not exist yet."""
+    resp = AdwsResponse(
+        result="Hello!",
+        cost_usd=0.003,
+        duration_ms=1500,
+        session_id="sess-123",
+        is_error=False,
+        error_message=None,
+        num_turns=2,
+    )
+    assert resp.result == "Hello!"
+    assert resp.cost_usd == 0.003
+    assert resp.duration_ms == 1500
+    assert resp.session_id == "sess-123"
+    assert resp.is_error is False
+    assert resp.error_message is None
+    assert resp.num_turns == 2
+
+
+def test_adws_response_defaults() -> None:
+    """RED: AdwsResponse does not exist yet."""
+    resp = AdwsResponse()
+    assert resp.result is None
+    assert resp.cost_usd is None
+    assert resp.duration_ms is None
+    assert resp.session_id is None
+    assert resp.is_error is False
+    assert resp.error_message is None
+    assert resp.num_turns is None
+
+
+def test_adws_response_error_state() -> None:
+    """RED: AdwsResponse does not exist yet."""
+    resp = AdwsResponse(
+        is_error=True,
+        error_message="Model not found",
+    )
+    assert resp.is_error is True
+    assert resp.error_message == "Model not found"
+    assert resp.result is None
+
+
+def test_adws_response_is_frozen() -> None:
+    """RED: AdwsResponse does not exist yet."""
+    resp = AdwsResponse()
+    with pytest.raises(Exception):  # noqa: B017, PT011
+        resp.is_error = True
+
+
+def test_adws_response_is_pydantic_model() -> None:
+    """RED: AdwsResponse does not exist yet."""
+    assert issubclass(AdwsResponse, BaseModel)

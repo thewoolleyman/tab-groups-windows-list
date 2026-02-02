@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from pydantic import BaseModel, ConfigDict
+
 
 @dataclass(frozen=True)
 class WorkflowContext:
@@ -55,3 +57,31 @@ class WorkflowContext:
     def merge_outputs(self, new_outputs: dict[str, object]) -> WorkflowContext:
         """Return new context with new_outputs merged into existing outputs."""
         return replace(self, outputs={**self.outputs, **new_outputs})
+
+
+class AdwsRequest(BaseModel):
+    """Request payload for SDK boundary calls."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str = "claude-sonnet-4-20250514"
+    system_prompt: str
+    prompt: str
+    allowed_tools: list[str] | None = None
+    disallowed_tools: list[str] | None = None
+    max_turns: int | None = None
+    permission_mode: str | None = None
+
+
+class AdwsResponse(BaseModel):
+    """Response payload from SDK boundary calls."""
+
+    model_config = ConfigDict(frozen=True)
+
+    result: str | None = None
+    cost_usd: float | None = None
+    duration_ms: int | None = None
+    session_id: str | None = None
+    is_error: bool = False
+    error_message: str | None = None
+    num_turns: int | None = None
