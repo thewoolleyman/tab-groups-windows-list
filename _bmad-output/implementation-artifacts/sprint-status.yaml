@@ -52,7 +52,7 @@ development_status:
   2-1-error-types-and-workflowcontext: done
   2-2-io-ops-sdk-client-and-enemy-unit-tests: done
   2-3-step-function-type-and-shell-command-execution: done
-  2-4-engine-core-sequential-execution-and-error-handling: backlog
+  2-4-engine-core-sequential-execution-and-error-handling: done
   2-5-engine-always-run-steps-and-retry-logic: backlog
   2-6-declarative-workflow-and-step-types-with-data-flow: backlog
   2-7-workflow-combinators-and-sample-workflow: backlog
