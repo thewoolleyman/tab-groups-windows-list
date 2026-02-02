@@ -19,13 +19,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
+      - name: Setup runtimes via mise
+        uses: jdx/mise-action@v2
 
-      - name: Install dependencies
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Python quality gates
+        run: |
+          uv run ruff check adws/
+          uv run mypy adws/
+          uv run pytest adws/tests/
+
+      - name: Install JS dependencies
         run: npm ci
 
       - name: Run Unit Tests with Coverage
