@@ -2582,6 +2582,100 @@ def test_parse_beads_issue_id_whitespace_only() -> None:
     assert _parse_beads_issue_id("  \n  \n") == ""
 
 
+# --- write_bmad_file tests (Story 6.3) ---
+
+
+def test_write_bmad_file_success(
+    tmp_path: Path,
+) -> None:
+    """write_bmad_file returns IOSuccess(None) on success."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        write_bmad_file,
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = write_bmad_file("story.md", "# Content")
+    assert isinstance(result, IOSuccess)
+    val = unsafe_perform_io(result.unwrap())
+    assert val is None
+    written = (tmp_path / "story.md").read_text()
+    assert written == "# Content"
+
+
+def test_write_bmad_file_empty_path() -> None:
+    """write_bmad_file returns IOFailure for empty path."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        write_bmad_file,
+    )
+
+    result = write_bmad_file("", "content")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.step_name == "io_ops.write_bmad_file"
+    assert error.error_type == "ValueError"
+    assert "empty" in error.message.lower()
+
+
+def test_write_bmad_file_permission_error(
+    tmp_path: Path,
+    mocker: Any,
+) -> None:
+    """write_bmad_file returns IOFailure on PermissionError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        write_bmad_file,
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch(
+            "adws.adw_modules.io_ops._Path.write_text",
+            side_effect=PermissionError("denied"),
+        )
+        result = write_bmad_file("story.md", "content")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.step_name == "io_ops.write_bmad_file"
+    assert error.error_type == "PermissionError"
+
+
+def test_write_bmad_file_os_error(
+    tmp_path: Path,
+    mocker: Any,
+) -> None:
+    """write_bmad_file returns IOFailure on OSError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        write_bmad_file,
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch(
+            "adws.adw_modules.io_ops._Path.write_text",
+            side_effect=OSError("disk full"),
+        )
+        result = write_bmad_file("story.md", "content")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.step_name == "io_ops.write_bmad_file"
+    assert error.error_type == "OSError"
+
+
 def test_parse_beads_issue_id_colon_only() -> None:
     """_parse_beads_issue_id returns the raw line when no ': ' found."""
     from adws.adw_modules.io_ops import (  # noqa: PLC0415

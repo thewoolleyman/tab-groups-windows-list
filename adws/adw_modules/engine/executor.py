@@ -16,6 +16,7 @@ from adws.adw_modules.steps import (
     block_dangerous_command,
     block_dangerous_command_safe,
     check_sdk_available,
+    convert_stories_orchestrator,
     create_beads_issue,
     execute_shell_step,
     implement_step,
@@ -30,6 +31,7 @@ from adws.adw_modules.steps import (
     track_file_operation,
     track_file_operation_safe,
     verify_tests_fail,
+    write_beads_id,
     write_failing_tests,
 )
 
@@ -47,6 +49,9 @@ _STEP_REGISTRY: dict[str, StepFunction] = {
         block_dangerous_command_safe
     ),
     "check_sdk_available": check_sdk_available,
+    "convert_stories_orchestrator": (
+        convert_stories_orchestrator
+    ),
     "create_beads_issue": create_beads_issue,
     "execute_shell_step": execute_shell_step,
     "implement_step": implement_step,
@@ -61,6 +66,7 @@ _STEP_REGISTRY: dict[str, StepFunction] = {
     "track_file_operation": track_file_operation,
     "track_file_operation_safe": track_file_operation_safe,
     "verify_tests_fail": verify_tests_fail,
+    "write_beads_id": write_beads_id,
     "write_failing_tests": write_failing_tests,
 }
 

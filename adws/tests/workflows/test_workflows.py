@@ -431,7 +431,7 @@ def test_convert_stories_to_beads_step_names() -> None:
     names = [s.name for s in wf.steps]
     assert names == [
         "parse_bmad_story",
-        "create_beads_issue",
+        "convert_stories_orchestrator",
     ]
 
 
@@ -442,17 +442,54 @@ def test_convert_stories_to_beads_step_functions() -> None:
     functions = [s.function for s in wf.steps]
     assert functions == [
         "parse_bmad_story",
-        "create_beads_issue",
+        "convert_stories_orchestrator",
     ]
 
 
-def test_convert_stories_to_beads_create_is_step_two() -> None:
-    """create_beads_issue is the second step in the workflow."""
+def test_convert_stories_to_beads_orchestrator_is_step_two() -> None:
+    """convert_stories_orchestrator is the second step."""
     wf = load_workflow(WorkflowName.CONVERT_STORIES_TO_BEADS)
     assert wf is not None
     step2 = wf.steps[1]
-    assert step2.name == "create_beads_issue"
-    assert step2.function == "create_beads_issue"
+    assert step2.name == "convert_stories_orchestrator"
+    assert step2.function == "convert_stories_orchestrator"
+
+
+# --- Story 6.3: Steps init exports ---
+
+
+def test_write_beads_id_in_steps_init() -> None:
+    """write_beads_id is importable from steps and in __all__."""
+    from adws.adw_modules import steps  # noqa: PLC0415
+
+    assert hasattr(steps, "write_beads_id")
+    assert "write_beads_id" in steps.__all__
+
+
+def test_convert_stories_orchestrator_in_steps_init() -> None:
+    """convert_stories_orchestrator importable from steps and in __all__."""
+    from adws.adw_modules import steps  # noqa: PLC0415
+
+    assert hasattr(steps, "convert_stories_orchestrator")
+    assert "convert_stories_orchestrator" in steps.__all__
+
+
+def test_step_registry_has_write_beads_id() -> None:
+    """_STEP_REGISTRY contains write_beads_id entry."""
+    from adws.adw_modules.engine.executor import (  # noqa: PLC0415
+        _STEP_REGISTRY,
+    )
+
+    assert "write_beads_id" in _STEP_REGISTRY
+
+
+def test_step_registry_has_convert_stories_orchestrator() -> None:
+    """_STEP_REGISTRY contains convert_stories_orchestrator entry."""
+    from adws.adw_modules.engine.executor import (  # noqa: PLC0415
+        _STEP_REGISTRY,
+    )
+
+    assert "convert_stories_orchestrator" in _STEP_REGISTRY
 
 
 def test_ivc_registry_entry() -> None:

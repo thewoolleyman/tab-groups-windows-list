@@ -99,8 +99,8 @@ _CONVERT_STORIES_TO_BEADS = Workflow(
             function="parse_bmad_story",
         ),
         Step(
-            name="create_beads_issue",
-            function="create_beads_issue",
+            name="convert_stories_orchestrator",
+            function="convert_stories_orchestrator",
         ),
     ],
 )

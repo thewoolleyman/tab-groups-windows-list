@@ -154,15 +154,29 @@ def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
     mocker,
 ) -> None:
     """run_command propagates execute failure for generic cmd."""
+    from adws.adw_modules.commands.types import (  # noqa: PLC0415
+        CommandSpec,
+    )
+
+    # Use a fake command with workflow_name but no specialized handler
+    mocker.patch(
+        "adws.adw_modules.commands.dispatch.get_command",
+        return_value=CommandSpec(
+            name="fake_generic",
+            description="test generic",
+            python_module="test",
+            workflow_name="sample",
+        ),
+    )
     fake_wf = Workflow(
-        name="convert_stories_to_beads",
+        name="sample",
         description="test",
         steps=[],
     )
     exec_err = PipelineError(
-        step_name="convert",
+        step_name="sample_step",
         error_type="StepError",
-        message="convert failed",
+        message="sample failed",
     )
     mocker.patch(
         "adws.adw_modules.io_ops.load_command_workflow",
@@ -173,12 +187,90 @@ def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
         return_value=IOFailure(exec_err),
     )
     ctx = WorkflowContext()
-    result = run_command(
-        "convert_stories_to_beads", ctx,
-    )
+    result = run_command("fake_generic", ctx)
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert error is exec_err
+
+
+def test_run_command_generic_workflow_success(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command routes through generic workflow path on success."""
+    from adws.adw_modules.commands.types import (  # noqa: PLC0415
+        CommandSpec,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.commands.dispatch.get_command",
+        return_value=CommandSpec(
+            name="fake_generic",
+            description="test generic",
+            python_module="test",
+            workflow_name="sample",
+        ),
+    )
+    fake_wf = Workflow(
+        name="sample",
+        description="test",
+        steps=[],
+    )
+    result_ctx = WorkflowContext(
+        outputs={"done": True},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.execute_command_workflow",
+        return_value=IOSuccess(result_ctx),
+    )
+    ctx = WorkflowContext()
+    result = run_command("fake_generic", ctx)
+    assert isinstance(result, IOSuccess)
+
+
+def test_dispatch_convert_stories_uses_specialized_handler(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('convert_stories_to_beads') routes to handler."""
+    fake_wf = Workflow(
+        name="convert_stories_to_beads",
+        description="test",
+        steps=[],
+    )
+    result_ctx = WorkflowContext(
+        outputs={
+            "conversion_results": [],
+            "summary": {
+                "total": 0,
+                "created": 0,
+                "skipped": 0,
+                "failed": 0,
+            },
+        },
+    )
+    mocker.patch(
+        "adws.adw_modules.commands.convert_stories"
+        ".io_ops.load_command_workflow",
+        return_value=IOSuccess(fake_wf),
+    )
+    mocker.patch(
+        "adws.adw_modules.commands.convert_stories"
+        ".io_ops.execute_command_workflow",
+        return_value=IOSuccess(result_ctx),
+    )
+    ctx = WorkflowContext(
+        inputs={
+            "bmad_file_path": "epics.md",
+            "workflow_name": "implement_verify_close",
+        },
+    )
+    result = run_command(
+        "convert_stories_to_beads", ctx,
+    )
+    assert isinstance(result, IOSuccess)
 
 
 def test_dispatch_verify_tool_failure_wraps_result(  # type: ignore[no-untyped-def]

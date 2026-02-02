@@ -405,6 +405,54 @@ def read_bmad_file(
     return read_file(absolute)
 
 
+def write_bmad_file(
+    path: str,
+    content: str,
+) -> IOResult[None, PipelineError]:
+    """Write content to a BMAD file by relative path from project root.
+
+    Resolves the path relative to the project root. Validates
+    that the path is non-empty before attempting write.
+    Returns IOSuccess(None) on success.
+    """
+    if not path:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_bmad_file",
+                error_type="ValueError",
+                message=(
+                    "Empty path provided to write_bmad_file"
+                ),
+                context={"path": path},
+            ),
+        )
+    root = _find_project_root()
+    absolute = root / path
+    try:
+        absolute.write_text(content)
+    except PermissionError:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_bmad_file",
+                error_type="PermissionError",
+                message=f"Permission denied: {absolute}",
+                context={"path": str(absolute)},
+            ),
+        )
+    except OSError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.write_bmad_file",
+                error_type=type(exc).__name__,
+                message=(
+                    f"OS error writing {absolute}: {exc}"
+                ),
+                context={"path": str(absolute)},
+            ),
+        )
+    return IOSuccess(None)
+
+
 def get_directory_tree(
     root: str,
     *,

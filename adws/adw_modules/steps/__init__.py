@@ -13,6 +13,9 @@ from adws.adw_modules.steps.build_feedback_context import (
     build_feedback_context,
 )
 from adws.adw_modules.steps.check_sdk_available import check_sdk_available
+from adws.adw_modules.steps.convert_stories_orchestrator import (
+    convert_stories_orchestrator,
+)
 from adws.adw_modules.steps.create_beads_issue import (
     create_beads_issue,
 )
@@ -37,6 +40,9 @@ from adws.adw_modules.steps.track_file_operation import (
 from adws.adw_modules.steps.verify_tests_fail import (
     verify_tests_fail,
 )
+from adws.adw_modules.steps.write_beads_id import (
+    write_beads_id,
+)
 from adws.adw_modules.steps.write_failing_tests import (
     write_failing_tests,
 )
@@ -48,6 +54,7 @@ __all__ = [
     "block_dangerous_command_safe",
     "build_feedback_context",
     "check_sdk_available",
+    "convert_stories_orchestrator",
     "create_beads_issue",
     "execute_shell_step",
     "implement_step",
@@ -62,5 +69,6 @@ __all__ = [
     "track_file_operation",
     "track_file_operation_safe",
     "verify_tests_fail",
+    "write_beads_id",
     "write_failing_tests",
 ]

@@ -16,6 +16,9 @@ from adws.adw_modules.commands.build import (
     BuildCommandResult,
     run_build_command,
 )
+from adws.adw_modules.commands.convert_stories import (
+    run_convert_stories_command,
+)
 from adws.adw_modules.commands.implement import (
     ImplementCommandResult,
     run_implement_command,
@@ -125,6 +128,22 @@ def _dispatch_load_bundle(
     return run_load_bundle_command(ctx).bind(_wrap)
 
 
+def _dispatch_convert_stories(
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Dispatch /convert_stories_to_beads to command."""
+    bmad_file_path = ctx.inputs.get(
+        "bmad_file_path", "",
+    )
+    workflow_name = ctx.inputs.get(
+        "workflow_name", "implement_verify_close",
+    )
+    return run_convert_stories_command(
+        str(bmad_file_path),
+        str(workflow_name),
+    )
+
+
 _SPECIALIZED_HANDLERS: dict[
     str,
     Callable[
@@ -137,6 +156,9 @@ _SPECIALIZED_HANDLERS: dict[
     "build": _dispatch_build,
     "implement": _dispatch_implement,
     "load_bundle": _dispatch_load_bundle,
+    "convert_stories_to_beads": (
+        _dispatch_convert_stories
+    ),
 }
 
 

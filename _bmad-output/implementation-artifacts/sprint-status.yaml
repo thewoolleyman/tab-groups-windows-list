@@ -86,10 +86,10 @@ development_status:
   epic-5-retrospective: optional
 
   # Epic 6: BMAD-to-Beads Story Converter
-  epic-6: in-progress
+  epic-6: done
   6-1-bmad-markdown-parser: done
   6-2-beads-issue-creator-with-workflow-tags: done
-  6-3-bidirectional-tracking-and-convert-stories-to-beads-command: backlog
+  6-3-bidirectional-tracking-and-convert-stories-to-beads-command: done
   epic-6-retrospective: optional
 
   # Epic 7: Automated Dispatch, Cron Trigger & Self-Healing Triage
