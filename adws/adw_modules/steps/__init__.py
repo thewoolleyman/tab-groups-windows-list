@@ -48,6 +48,11 @@ from adws.adw_modules.steps.track_file_operation import (
     track_file_operation,
     track_file_operation_safe,
 )
+from adws.adw_modules.steps.triage import (
+    check_cooldown_elapsed,
+    classify_failure_tier,
+    parse_failure_metadata,
+)
 from adws.adw_modules.steps.verify_tests_fail import (
     verify_tests_fail,
 )
@@ -64,8 +69,10 @@ __all__ = [
     "block_dangerous_command",
     "block_dangerous_command_safe",
     "build_feedback_context",
+    "check_cooldown_elapsed",
     "check_dispatch_guard",
     "check_sdk_available",
+    "classify_failure_tier",
     "convert_stories_orchestrator",
     "create_beads_issue",
     "execute_shell_step",
@@ -75,6 +82,7 @@ __all__ = [
     "log_hook_event",
     "log_hook_event_safe",
     "parse_bmad_story",
+    "parse_failure_metadata",
     "parse_issue_list",
     "read_and_extract",
     "refactor_step",

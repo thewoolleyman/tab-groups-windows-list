@@ -531,3 +531,47 @@ def test_list_dispatchable_workflows_excludes_non_dispatchable() -> None:
     assert WorkflowName.CONVERT_STORIES_TO_BEADS not in names
     assert WorkflowName.SAMPLE not in names
     assert WorkflowName.VERIFY not in names
+    assert WorkflowName.TRIAGE not in names
+
+
+# --- Story 7.4: Triage workflow registry tests ---
+
+
+def test_triage_workflow_name_constant() -> None:
+    """WorkflowName.TRIAGE equals 'triage'."""
+    assert WorkflowName.TRIAGE == "triage"
+
+
+def test_triage_workflow_registered() -> None:
+    """load_workflow("triage") returns triage workflow."""
+    wf = load_workflow(WorkflowName.TRIAGE)
+    assert wf is not None
+    assert isinstance(wf, Workflow)
+    assert wf.name == WorkflowName.TRIAGE
+
+
+def test_triage_workflow_not_dispatchable() -> None:
+    """Triage workflow has dispatchable=False."""
+    wf = load_workflow(WorkflowName.TRIAGE)
+    assert wf is not None
+    assert wf.dispatchable is False
+
+
+def test_triage_workflow_not_in_dispatchable_list() -> None:
+    """Triage workflow excluded from dispatchable listing."""
+    dispatchable = list_workflows(dispatchable_only=True)
+    names = [w.name for w in dispatchable]
+    assert WorkflowName.TRIAGE not in names
+
+
+def test_triage_workflow_in_all_list() -> None:
+    """Triage workflow appears in all-workflows listing."""
+    all_wfs = list_workflows()
+    names = [w.name for w in all_wfs]
+    assert WorkflowName.TRIAGE in names
+
+
+def test_triage_workflow_not_in_dispatchable_names() -> None:
+    """list_dispatchable_workflows excludes triage."""
+    names = list_dispatchable_workflows()
+    assert WorkflowName.TRIAGE not in names

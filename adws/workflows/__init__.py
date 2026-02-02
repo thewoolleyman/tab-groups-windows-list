@@ -11,6 +11,7 @@ class WorkflowName:
     IMPLEMENT_VERIFY_CLOSE = "implement_verify_close"
     CONVERT_STORIES_TO_BEADS = "convert_stories_to_beads"
     SAMPLE = "sample"
+    TRIAGE = "triage"
     VERIFY = "verify"
 
 
@@ -169,12 +170,23 @@ _SAMPLE = Workflow(
     ],
 )
 
+_TRIAGE = Workflow(
+    name=WorkflowName.TRIAGE,
+    description=(
+        "Self-healing failure recovery: triage"
+        " failed issues with tiered escalation"
+    ),
+    dispatchable=False,
+    steps=[],
+)
+
 _REGISTRY: dict[str, Workflow] = {
     _IMPLEMENT_CLOSE.name: _IMPLEMENT_CLOSE,
     _IMPLEMENT_VERIFY_CLOSE.name: _IMPLEMENT_VERIFY_CLOSE,
     _CONVERT_STORIES_TO_BEADS.name: _CONVERT_STORIES_TO_BEADS,
     _VERIFY.name: _VERIFY,
     _SAMPLE.name: _SAMPLE,
+    _TRIAGE.name: _TRIAGE,
 }
 
 

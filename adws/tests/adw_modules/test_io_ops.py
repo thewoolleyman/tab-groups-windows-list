@@ -2953,3 +2953,206 @@ def test_read_issue_notes_shell_failure(mocker) -> None:  # type: ignore[no-unty
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert error is shell_err
+
+
+# --- clear_failure_metadata tests (Story 7.4) ---
+
+
+def test_clear_failure_metadata_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """clear_failure_metadata calls bd update --notes '' and returns IOSuccess."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        clear_failure_metadata,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="",
+                stderr="",
+                command="bd update ISSUE-42 --notes ''",
+            ),
+        ),
+    )
+    result = clear_failure_metadata("ISSUE-42")
+    assert isinstance(result, IOSuccess)
+    sr = unsafe_perform_io(result.unwrap())
+    assert isinstance(sr, ShellResult)
+    assert sr.return_code == 0
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd update" in cmd
+    assert "ISSUE-42" in cmd
+    assert "--notes" in cmd
+
+
+def test_clear_failure_metadata_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """clear_failure_metadata returns IOFailure on nonzero exit."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        clear_failure_metadata,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="error",
+                command="bd update ISSUE-42 --notes ''",
+            ),
+        ),
+    )
+    result = clear_failure_metadata("ISSUE-42")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsClearMetadataError"
+
+
+def test_clear_failure_metadata_empty_id(mocker) -> None:  # type: ignore[no-untyped-def]
+    """clear_failure_metadata returns IOFailure for empty issue_id."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        clear_failure_metadata,
+    )
+
+    result = clear_failure_metadata("")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ValueError"
+
+
+def test_clear_failure_metadata_whitespace_id(mocker) -> None:  # type: ignore[no-untyped-def]
+    """clear_failure_metadata returns IOFailure for whitespace-only id."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        clear_failure_metadata,
+    )
+
+    result = clear_failure_metadata("   ")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "ValueError"
+
+
+def test_clear_failure_metadata_shell_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """clear_failure_metadata propagates shell IOFailure via bind."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        clear_failure_metadata,
+    )
+
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = clear_failure_metadata("ISSUE-42")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err
+
+
+# --- tag_needs_human tests (Story 7.4) ---
+
+
+def test_tag_needs_human_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """tag_needs_human calls bd update with needs_human notes."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        tag_needs_human,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ok",
+                stderr="",
+                command="bd update ISSUE-42 --notes ...",
+            ),
+        ),
+    )
+    result = tag_needs_human("ISSUE-42", "unresolvable failure")
+    assert isinstance(result, IOSuccess)
+    sr = unsafe_perform_io(result.unwrap())
+    assert isinstance(sr, ShellResult)
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd update" in cmd
+    assert "ISSUE-42" in cmd
+    assert "needs_human" in cmd
+
+
+def test_tag_needs_human_nonzero_exit(mocker) -> None:  # type: ignore[no-untyped-def]
+    """tag_needs_human returns IOFailure on nonzero exit."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        tag_needs_human,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="error",
+                command="bd update ISSUE-42 --notes ...",
+            ),
+        ),
+    )
+    result = tag_needs_human("ISSUE-42", "reason")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsTagHumanError"
+
+
+def test_tag_needs_human_empty_id(mocker) -> None:  # type: ignore[no-untyped-def]
+    """tag_needs_human returns IOFailure for empty issue_id."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        tag_needs_human,
+    )
+
+    result = tag_needs_human("", "reason")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ValueError"
+
+
+def test_tag_needs_human_whitespace_id(mocker) -> None:  # type: ignore[no-untyped-def]
+    """tag_needs_human returns IOFailure for whitespace-only id."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        tag_needs_human,
+    )
+
+    result = tag_needs_human("   ", "reason")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "ValueError"
+
+
+def test_tag_needs_human_shell_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """tag_needs_human propagates shell IOFailure via bind."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        tag_needs_human,
+    )
+
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = tag_needs_human("ISSUE-42", "reason")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err

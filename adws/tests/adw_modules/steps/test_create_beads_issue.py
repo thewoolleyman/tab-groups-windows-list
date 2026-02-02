@@ -208,7 +208,7 @@ class TestGetValidWorkflowNames:
         """Returns a frozenset of workflow names."""
         names = _get_valid_workflow_names()
         assert isinstance(names, frozenset)
-        assert len(names) == 5
+        assert len(names) == 6
 
     def test_contains_all_constants(self) -> None:
         """Contains all WorkflowName constants."""

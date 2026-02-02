@@ -1121,3 +1121,110 @@ def write_stderr(
             ),
         )
     return IOSuccess(None)
+
+
+# --- Triage workflow io_ops (Story 7.4) ---
+
+
+def clear_failure_metadata(
+    issue_id: str,
+) -> IOResult[ShellResult, PipelineError]:
+    """Clear ADWS_FAILED metadata from a Beads issue (FR48).
+
+    Executes bd update {issue_id} --notes '' to clear all
+    notes, removing the ADWS_FAILED metadata so the issue
+    re-enters the dispatch pool on the next cron poll cycle.
+    Validates issue_id is non-empty.
+    """
+    if not issue_id or not issue_id.strip():
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.clear_failure_metadata",
+                error_type="ValueError",
+                message=(
+                    "Empty issue_id provided to"
+                    " clear_failure_metadata"
+                ),
+                context={"issue_id": issue_id},
+            ),
+        )
+    safe_id = shlex.quote(issue_id)
+    cmd = f"bd update {safe_id} --notes ''"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[ShellResult, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name=(
+                        "io_ops.clear_failure_metadata"
+                    ),
+                    error_type="BeadsClearMetadataError",
+                    message=(
+                        f"bd update --notes '' failed for"
+                        f" {issue_id}: {sr.stderr}"
+                    ),
+                    context={
+                        "issue_id": issue_id,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr)
+
+    return result.bind(_check_exit)
+
+
+def tag_needs_human(
+    issue_id: str,
+    reason: str,
+) -> IOResult[ShellResult, PipelineError]:
+    """Tag a Beads issue with needs_human metadata (FR48).
+
+    Executes bd update {issue_id} --notes 'needs_human|reason=...'
+    to mark the issue as requiring human attention. Validates
+    issue_id is non-empty.
+    """
+    if not issue_id or not issue_id.strip():
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.tag_needs_human",
+                error_type="ValueError",
+                message=(
+                    "Empty issue_id provided to"
+                    " tag_needs_human"
+                ),
+                context={"issue_id": issue_id},
+            ),
+        )
+    notes = f"needs_human|reason={reason}"
+    safe_id = shlex.quote(issue_id)
+    safe_notes = shlex.quote(notes)
+    cmd = f"bd update {safe_id} --notes {safe_notes}"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[ShellResult, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.tag_needs_human",
+                    error_type="BeadsTagHumanError",
+                    message=(
+                        f"bd update --notes failed for"
+                        f" {issue_id}: {sr.stderr}"
+                    ),
+                    context={
+                        "issue_id": issue_id,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr)
+
+    return result.bind(_check_exit)
