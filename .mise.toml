@@ -1,0 +1,7 @@
+[tools]
+python = "3.11.12"
+node = "20.19.5"
+uv = "0.9.28"
+
+[env]
+_.file = ".env"

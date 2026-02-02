@@ -29,3 +29,20 @@
 *.sln
 *.sw?
 coverage/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ADWS output (transient)
+agents/hook_logs/
+agents/context_bundles/
+agents/security_logs/

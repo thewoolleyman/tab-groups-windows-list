@@ -383,6 +383,7 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 htmlcov/
+.coverage
 
 # ADWS output (transient)
 agents/hook_logs/
@@ -561,10 +562,10 @@ line-length = 88
 # This is safer than starting permissive and missing things.
 select = ["ALL"]
 # D: docstring rules -- we use inline comments, not docstrings for everything
-# ANN101/ANN102: self/cls type annotations -- redundant, Python knows these
 # COM812: trailing comma -- conflicts with ruff formatter
 # ISC001: implicit string concatenation -- conflicts with ruff formatter
-ignore = ["D", "ANN101", "ANN102", "COM812", "ISC001"]
+# Note: ANN101/ANN102 removed -- deprecated in ruff 0.14.x (self/cls annotations are auto-inferred)
+ignore = ["D", "COM812", "ISC001"]
 
 [tool.ruff.lint.per-file-ignores]
 # Test files get relaxed rules:

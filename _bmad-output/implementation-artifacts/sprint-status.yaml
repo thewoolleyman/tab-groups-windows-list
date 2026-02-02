@@ -1,0 +1,101 @@
+# generated: 2026-02-01
+# project: tab-groups-windows-list
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-01
+project: tab-groups-windows-list
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation & Developer Environment
+  epic-1: in-progress
+  1-1-project-scaffold-and-dual-toolchain-setup: done
+  1-2-skeleton-layer-implementations-and-tdd-foundation: backlog
+  1-3-ci-pipeline-and-quality-gate-enforcement: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Pipeline Engine & Workflow Types
+  epic-2: backlog
+  2-1-error-types-and-workflowcontext: backlog
+  2-2-io-ops-sdk-client-and-enemy-unit-tests: backlog
+  2-3-step-function-type-and-shell-command-execution: backlog
+  2-4-engine-core-sequential-execution-and-error-handling: backlog
+  2-5-engine-always-run-steps-and-retry-logic: backlog
+  2-6-declarative-workflow-and-step-types-with-data-flow: backlog
+  2-7-workflow-combinators-and-sample-workflow: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Verify Pipeline
+  epic-3: backlog
+  3-1-verify-io-ops-shell-functions: backlog
+  3-2-verify-pipeline-steps-and-quality-gate-workflow: backlog
+  3-3-feedback-accumulation-and-retry-context: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Developer Commands & TDD Workflow
+  epic-4: backlog
+  4-1-command-pattern-md-entry-points-and-python-module-wiring: backlog
+  4-2-verify-command-entry-point: backlog
+  4-3-prime-command-for-context-loading: backlog
+  4-4-build-command-and-implement-close-workflow: backlog
+  4-5-write-failing-tests-step-red-phase: backlog
+  4-6-verify-tests-fail-step-red-gate: backlog
+  4-7-implement-and-refactor-steps-green-and-refactor-phases: backlog
+  4-8-implement-verify-close-workflow-and-implement-command: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Observability & Safety Hooks
+  epic-5: backlog
+  5-1-hook-event-logger-module-and-cli-sdk-wiring: backlog
+  5-2-file-tracker-and-context-bundles: backlog
+  5-3-load-bundle-command: backlog
+  5-4-dangerous-command-blocker-with-audit-logging: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: BMAD-to-Beads Story Converter
+  epic-6: backlog
+  6-1-bmad-markdown-parser: backlog
+  6-2-beads-issue-creator-with-workflow-tags: backlog
+  6-3-bidirectional-tracking-and-convert-stories-to-beads-command: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Automated Dispatch, Cron Trigger & Self-Healing Triage
+  epic-7: backlog
+  7-1-issue-tag-extraction-and-workflow-dispatch: backlog
+  7-2-workflow-execution-and-issue-closure: backlog
+  7-3-cron-trigger-polling-and-autonomous-execution: backlog
+  7-4-triage-workflow-self-healing-failure-recovery: backlog
+  epic-7-retrospective: optional

@@ -1,0 +1,46 @@
+[project]
+name = "tab-groups-windows-list"
+version = "0.0.1"
+requires-python = ">=3.11"
+dependencies = [
+    "claude-agent-sdk==0.1.27",
+    "returns==0.26.0",
+    "pydantic==2.12.5",
+    "rich==14.3.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.2",
+    "pytest-cov==7.0.0",
+    "pytest-mock==3.12.0",
+    "mypy==1.19.1",
+    "ruff==0.14.14",
+]
+
+[tool.setuptools.packages.find]
+include = ["adws*"]
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["returns.contrib.mypy.returns_plugin"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D", "COM812", "ISC001"]
+
+[tool.ruff.lint.per-file-ignores]
+"adws/tests/**/*.py" = ["S101", "PLR2004", "ANN"]
+
+[tool.pytest.ini_options]
+testpaths = ["adws/tests"]
+addopts = "--cov=adws --cov-report=term-missing --cov-fail-under=100 --cov-branch --strict-markers"
+markers = [
+    "enemy: Enemy Unit Tests - REAL API calls through REAL SDK (require ANTHROPIC_API_KEY)",
+]
