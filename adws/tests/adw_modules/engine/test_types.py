@@ -118,3 +118,23 @@ def test_step_backward_compatible() -> None:
     assert step.max_attempts == 2
     assert step.shell is False
     assert step.command == ""
+
+
+# --- Step retry_delay_seconds field tests (Story 2.5) ---
+
+
+def test_step_retry_delay_default() -> None:
+    """Step retry_delay_seconds defaults to 0.0."""
+    step = Step(name="s", function="f")
+    assert step.retry_delay_seconds == 0.0
+
+
+def test_step_retry_delay_configured() -> None:
+    """Step retry_delay_seconds can be set to custom value."""
+    step = Step(
+        name="retry_step",
+        function="retry_func",
+        max_attempts=3,
+        retry_delay_seconds=1.5,
+    )
+    assert step.retry_delay_seconds == 1.5

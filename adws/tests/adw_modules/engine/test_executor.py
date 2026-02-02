@@ -9,6 +9,7 @@ from returns.unsafe import unsafe_perform_io
 
 from adws.adw_modules.engine.executor import (
     _resolve_step_function,
+    _run_step_with_retry,
     run_step,
     run_workflow,
 )
@@ -516,3 +517,669 @@ class TestRunWorkflow:
         # Step 2 received step 1's output as input
         assert received_inputs[0]["from_s1"] == "hello"
         assert received_inputs[0]["original"] == "data"
+
+
+# --- Test helper for flaky steps (Story 2.5) ---
+
+
+def _make_flaky_step(
+    fail_count: int,
+    output_key: str,
+    output_value: object,
+) -> _StepFn:
+    """Create a step that fails fail_count times then succeeds."""
+    attempts: dict[str, int] = {"count": 0}
+
+    def step(
+        ctx: WorkflowContext,
+    ) -> IOResult[WorkflowContext, PipelineError]:
+        attempts["count"] += 1
+        if attempts["count"] <= fail_count:
+            return IOFailure(
+                PipelineError(
+                    step_name="flaky_step",
+                    error_type="TransientError",
+                    message=(
+                        f"Attempt {attempts['count']} failed"
+                    ),
+                    context={"attempt": attempts["count"]},
+                ),
+            )
+        return IOSuccess(
+            ctx.merge_outputs({output_key: output_value}),
+        )
+
+    return step
+
+
+# --- Task 3: _run_step_with_retry tests (Story 2.5) ---
+
+
+class TestRunStepWithRetry:
+    """Tests for _run_step_with_retry function."""
+
+    def test_retry_success_first_attempt(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """max_attempts=3, succeeds first try, no retries."""
+        step = Step(
+            name="ok_step",
+            function="fn1",
+            max_attempts=3,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": _make_success_step("result", "ok")},
+        )
+        ctx = WorkflowContext()
+        result = _run_step_with_retry(step, ctx)
+        assert isinstance(result, IOSuccess)
+        updated = unsafe_perform_io(result.unwrap())
+        assert updated.outputs["result"] == "ok"
+
+    def test_retry_success_second_attempt(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """max_attempts=3, fails once then succeeds."""
+        flaky = _make_flaky_step(1, "result", "recovered")
+        step = Step(
+            name="flaky_step",
+            function="fn1",
+            max_attempts=3,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": flaky},
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = _run_step_with_retry(step, ctx)
+        assert isinstance(result, IOSuccess)
+        updated = unsafe_perform_io(result.unwrap())
+        assert updated.outputs["result"] == "recovered"
+
+    def test_retry_exhaustion(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """max_attempts=2, fails both times, PipelineError returned."""
+        step = Step(
+            name="always_fail",
+            function="fn1",
+            max_attempts=2,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": _make_failure_step("permanent error")},
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = _run_step_with_retry(step, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert "permanent error" in error.message
+
+    def test_retry_delay_called(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """sleep_seconds called between retries with correct delay."""
+        flaky = _make_flaky_step(1, "result", "ok")
+        step = Step(
+            name="delay_step",
+            function="fn1",
+            max_attempts=3,
+            retry_delay_seconds=2.0,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": flaky},
+        )
+        mock_sleep = mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = _run_step_with_retry(step, ctx)
+        assert isinstance(result, IOSuccess)
+        mock_sleep.assert_called_once_with(2.0)
+
+    def test_retry_no_delay_when_zero(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """retry_delay_seconds=0.0 means sleep not called."""
+        flaky = _make_flaky_step(1, "result", "ok")
+        step = Step(
+            name="no_delay",
+            function="fn1",
+            max_attempts=2,
+            retry_delay_seconds=0.0,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": flaky},
+        )
+        mock_sleep = mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = _run_step_with_retry(step, ctx)
+        assert isinstance(result, IOSuccess)
+        mock_sleep.assert_not_called()
+
+    def test_retry_feedback_accumulation(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Each retry receives feedback from prior failure."""
+        received_ctxs: list[WorkflowContext] = []
+
+        def capturing_flaky(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received_ctxs.append(ctx)
+            if len(received_ctxs) <= 1:
+                return IOFailure(
+                    PipelineError(
+                        step_name="flaky",
+                        error_type="TransientError",
+                        message="first attempt failed",
+                        context={},
+                    ),
+                )
+            return IOSuccess(
+                ctx.merge_outputs({"done": True}),
+            )
+
+        step = Step(
+            name="feedback_step",
+            function="fn1",
+            max_attempts=3,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": capturing_flaky},
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = _run_step_with_retry(step, ctx)
+        assert isinstance(result, IOSuccess)
+        # Second call should have feedback from first failure
+        assert len(received_ctxs) == 2
+        assert len(received_ctxs[1].feedback) == 1
+        assert "Retry 1/3" in received_ctxs[1].feedback[0]
+        assert "first attempt failed" in received_ctxs[1].feedback[0]
+
+
+# --- Task 4: always_run tests (Story 2.5) ---
+
+
+class TestAlwaysRun:
+    """Tests for always_run step behavior in run_workflow."""
+
+    def test_always_run_after_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Normal step fails, always_run step still executes."""
+        cleanup_called: list[bool] = []
+
+        def cleanup_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            cleanup_called.append(True)
+            return IOSuccess(
+                ctx.merge_outputs({"cleaned": True}),
+            )
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("s1 exploded"),
+                "fn2": cleanup_step,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        # Original error preserved
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert "s1 exploded" in error.message
+        # Cleanup ran
+        assert cleanup_called == [True]
+
+    def test_always_run_after_success(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """All steps succeed, always_run runs normally."""
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("out1", "a"),
+                "fn2": _make_success_step("out2", "b"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        final = unsafe_perform_io(result.unwrap())
+        assert final.outputs["out2"] == "b"
+        assert final.inputs["out1"] == "a"
+
+    def test_always_run_step_itself_fails(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Original error preserved when always_run also fails."""
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("original error"),
+                "fn2": _make_failure_step("cleanup failed"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        # Original pipeline error is preserved
+        assert "original error" in error.message
+        # AC5: always_run failure included in context
+        ar_failures = error.context["always_run_failures"]
+        assert isinstance(ar_failures, list)
+        assert len(ar_failures) == 1
+        assert "cleanup failed" in str(ar_failures[0])
+
+    def test_multiple_always_run_steps(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """All always_run steps execute even if one fails."""
+        calls: list[str] = []
+
+        def track_step(
+            name: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(name)
+                return IOSuccess(
+                    ctx.merge_outputs({name: True}),
+                )
+
+            return step
+
+        def track_and_fail(
+            name: str,
+            msg: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(name)
+                return IOFailure(
+                    PipelineError(
+                        step_name=name,
+                        error_type="CleanupError",
+                        message=msg,
+                        context={},
+                    ),
+                )
+
+            return step
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup1",
+                function="fn2",
+                always_run=True,
+            ),
+            Step(
+                name="cleanup2",
+                function="fn3",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": track_and_fail(
+                    "cleanup1", "cleanup1 broke"
+                ),
+                "fn3": track_step("cleanup2"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        # Both always_run steps ran despite cleanup1 failing
+        assert calls == ["cleanup1", "cleanup2"]
+        error = unsafe_perform_io(result.failure())
+        # Original error preserved
+        assert "boom" in error.message
+        # cleanup1 failure tracked in context
+        ar_failures = error.context["always_run_failures"]
+        assert isinstance(ar_failures, list)
+        assert len(ar_failures) == 1
+        assert "cleanup1 broke" in str(ar_failures[0])
+
+    def test_always_run_with_retry(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """always_run step with max_attempts retries."""
+        cleaned = True
+        flaky = _make_flaky_step(1, "cleaned", cleaned)
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+                max_attempts=3,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": flaky,
+            },
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        # Original error preserved
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert "boom" in error.message
+
+    def test_always_run_receives_failure_context(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """always_run step gets context at point of failure."""
+        received: list[WorkflowContext] = []
+
+        def capture_ctx(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(ctx)
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(name="s2", function="fn2"),
+            Step(
+                name="cleanup",
+                function="fn3",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("data", "val"),
+                "fn2": _make_failure_step("s2 failed"),
+                "fn3": capture_ctx,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        # Cleanup step received context with s1 outputs
+        # promoted to inputs
+        assert len(received) == 1
+        assert received[0].inputs["data"] == "val"
+
+    def test_normal_steps_skipped_after_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Step 2 fails, step 3 (normal) skipped, step 4 runs."""
+        step3_mock = mocker.Mock()
+        cleanup_called: list[bool] = []
+
+        def cleanup(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            cleanup_called.append(True)
+            return IOSuccess(ctx)
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(name="s2", function="fn2"),
+            Step(name="s3", function="fn3"),
+            Step(
+                name="s4",
+                function="fn4",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("out1", "a"),
+                "fn2": _make_failure_step("s2 failed"),
+                "fn3": step3_mock,
+                "fn4": cleanup,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        step3_mock.assert_not_called()
+        assert cleanup_called == [True]
+
+    def test_always_run_collision_preserves_original(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Collision in always_run step keeps original error."""
+
+        def collision_cleanup(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            return IOSuccess(
+                ctx.merge_outputs({"data": "collision"}),
+            )
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(name="s2", function="fn2"),
+            Step(
+                name="cleanup",
+                function="fn3",
+                always_run=True,
+            ),
+            Step(
+                name="cleanup2",
+                function="fn4",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("data", "val"),
+                "fn2": _make_failure_step("s2 failed"),
+                "fn3": collision_cleanup,
+                "fn4": _make_success_step("final", "ok"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        # Original error preserved, not the collision
+        assert "s2 failed" in error.message
+
+
+# --- Task 5: Retry + workflow integration tests ---
+
+
+class TestRetryWorkflowIntegration:
+    """Tests for retry wired into run_workflow."""
+
+    def test_workflow_retryable_step_recovers(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Step with max_attempts=3 fails twice, succeeds third."""
+        flaky = _make_flaky_step(2, "result", "recovered")
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="flaky",
+                function="fn2",
+                max_attempts=3,
+            ),
+            Step(name="s3", function="fn3"),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("out1", "a"),
+                "fn2": flaky,
+                "fn3": _make_success_step("out3", "c"),
+            },
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        final = unsafe_perform_io(result.unwrap())
+        assert final.outputs["out3"] == "c"
+        assert final.inputs["result"] == "recovered"
+
+    def test_workflow_retry_exhaustion_to_always_run(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Retryable step exhausts, always_run still runs."""
+        cleanup_called: list[bool] = []
+
+        def cleanup(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            cleanup_called.append(True)
+            return IOSuccess(ctx)
+
+        steps = [
+            Step(
+                name="failing",
+                function="fn1",
+                max_attempts=2,
+            ),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("always fails"),
+                "fn2": cleanup,
+            },
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert "always fails" in error.message
+        assert cleanup_called == [True]

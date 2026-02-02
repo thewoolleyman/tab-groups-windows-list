@@ -34,6 +34,7 @@ class Step:
     function: str
     always_run: bool = False
     max_attempts: int = 1
+    retry_delay_seconds: float = 0.0
     shell: bool = False
     command: str = ""
 

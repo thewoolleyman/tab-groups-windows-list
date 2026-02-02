@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 from claude_agent_sdk import (
@@ -197,3 +198,22 @@ def run_shell_command(
                 command=command,
             ),
         )
+
+
+def sleep_seconds(
+    seconds: float,
+) -> IOResult[None, PipelineError]:
+    """Sleep for specified seconds. Returns IOResult, never raises."""
+    try:
+        time.sleep(seconds)
+    except OSError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.sleep_seconds",
+                error_type=type(exc).__name__,
+                message=f"Sleep interrupted: {exc}",
+                context={"seconds": seconds},
+            ),
+        )
+    else:
+        return IOSuccess(None)

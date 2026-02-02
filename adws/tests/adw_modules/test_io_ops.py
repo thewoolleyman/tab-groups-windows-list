@@ -23,6 +23,7 @@ from adws.adw_modules.io_ops import (
     execute_sdk_call,
     read_file,
     run_shell_command,
+    sleep_seconds,
 )
 from adws.adw_modules.types import AdwsRequest, AdwsResponse, ShellResult
 
@@ -440,3 +441,32 @@ def test_run_shell_command_passes_critical_flags(mocker) -> None:  # type: ignor
     assert kwargs["capture_output"] is True
     assert kwargs["text"] is True
     assert kwargs["check"] is False
+
+
+# --- sleep_seconds tests (Story 2.5) ---
+
+
+def test_sleep_seconds_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """sleep_seconds wraps time.sleep, returns IOSuccess(None)."""
+    mock_sleep = mocker.patch(
+        "adws.adw_modules.io_ops.time.sleep",
+    )
+    result = sleep_seconds(2.5)
+    assert isinstance(result, IOSuccess)
+    assert unsafe_perform_io(result.unwrap()) is None
+    mock_sleep.assert_called_once_with(2.5)
+
+
+def test_sleep_seconds_os_error(mocker) -> None:  # type: ignore[no-untyped-def]
+    """sleep_seconds returns IOFailure on OSError."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.time.sleep",
+        side_effect=OSError("interrupted"),
+    )
+    result = sleep_seconds(1.0)
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "OSError"
+    assert "interrupted" in error.message
+    assert error.context["seconds"] == 1.0
