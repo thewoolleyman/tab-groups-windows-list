@@ -46,6 +46,24 @@ def test_import_run_command_from_package() -> None:
     assert callable(run_command)
 
 
+def test_import_verify_command_result_from_package() -> None:
+    """VerifyCommandResult importable from commands package."""
+    from adws.adw_modules.commands import (  # noqa: PLC0415
+        VerifyCommandResult,
+    )
+
+    assert VerifyCommandResult is not None
+
+
+def test_import_run_verify_command_from_package() -> None:
+    """run_verify_command importable from commands package."""
+    from adws.adw_modules.commands import (  # noqa: PLC0415
+        run_verify_command,
+    )
+
+    assert callable(run_verify_command)
+
+
 # --- Module import wiring tests ---
 
 
@@ -85,6 +103,16 @@ def test_wiring_verify_md_exists() -> None:
     content = md_path.read_text()
     assert "adws.adw_modules.commands.dispatch" in content
     assert "verify" in content
+
+
+def test_wiring_verify_md_references_verify_module() -> None:
+    """adws-verify.md references the verify-specific module."""
+    md_path = (
+        _PROJECT_ROOT / ".claude" / "commands" / "adws-verify.md"
+    )
+    assert md_path.exists(), f"Missing: {md_path}"
+    content = md_path.read_text()
+    assert "run_verify_command" in content
 
 
 def test_wiring_build_md_exists() -> None:

@@ -2,18 +2,23 @@
 
 Routes command names to their associated workflows via the
 command registry. Uses io_ops boundary for workflow loading
-and execution.
+and execution. The "verify" command routes to a specialized
+handler (Story 4.2).
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from returns.io import IOFailure, IOResult
+from returns.io import IOFailure, IOResult, IOSuccess
 
 from adws.adw_modules import io_ops
 from adws.adw_modules.commands.registry import (
     get_command,
     list_commands,
+)
+from adws.adw_modules.commands.verify import (
+    VerifyCommandResult,
+    run_verify_command,
 )
 from adws.adw_modules.errors import PipelineError
 
@@ -28,10 +33,11 @@ def run_command(
 ) -> IOResult[WorkflowContext, PipelineError]:
     """Dispatch a command by name.
 
-    Workflow-backed commands load and execute the associated
-    workflow. Non-workflow commands return an IOFailure
-    indicating custom logic is needed (added in later stories).
-    Unknown commands return an IOFailure with available names.
+    The "verify" command routes to a specialized handler that
+    formats results. Other workflow-backed commands use the
+    generic workflow path. Non-workflow commands return an
+    IOFailure. Unknown commands return an IOFailure with
+    available names.
     """
     spec = get_command(name)
     if spec is None:
@@ -66,6 +72,19 @@ def run_command(
             ),
         )
 
+    # Specialized handler for "verify" command
+    if spec.name == "verify":
+
+        def _wrap_vr(
+            vr: VerifyCommandResult,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            return IOSuccess(
+                ctx.merge_outputs({"verify_result": vr}),
+            )
+
+        return run_verify_command(ctx).bind(_wrap_vr)
+
+    # Generic workflow path for other commands
     load_result = io_ops.load_command_workflow(
         spec.workflow_name,
     )

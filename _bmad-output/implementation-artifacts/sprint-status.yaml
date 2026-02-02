@@ -68,7 +68,7 @@ development_status:
   # Epic 4: Developer Commands & TDD Workflow
   epic-4: in-progress
   4-1-command-pattern-md-entry-points-and-python-module-wiring: done
-  4-2-verify-command-entry-point: backlog
+  4-2-verify-command-entry-point: done
   4-3-prime-command-for-context-loading: backlog
   4-4-build-command-and-implement-close-workflow: backlog
   4-5-write-failing-tests-step-red-phase: backlog
