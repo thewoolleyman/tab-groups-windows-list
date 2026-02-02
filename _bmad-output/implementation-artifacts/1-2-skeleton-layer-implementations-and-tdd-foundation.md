@@ -1,6 +1,6 @@
 # Story 1.2: Skeleton Layer Implementations & TDD Foundation
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -93,7 +93,7 @@ so that subsequent stories have established patterns to follow and quality gates
 ├─────────────────────────────────────────────────────┤
 │  Steps (pure logic + io_ops calls)                   │
 │  adws/adw_modules/steps/*.py                         │
-│  (WorkflowContext) → IOResult[PipelineError, ...]    │
+│  (WorkflowContext) → IOResult[..., PipelineError]    │
 ├─────────────────────────────────────────────────────┤
 │  I/O Boundary (single mock point)                    │
 │  adws/adw_modules/io_ops.py                          │
@@ -129,7 +129,7 @@ so that subsequent stories have established patterns to follow and quality gates
 from returns.io import IOResult, IOSuccess, IOFailure
 
 # io_ops function pattern
-def read_file(path: Path) -> IOResult[PipelineError, str]:
+def read_file(path: Path) -> IOResult[str, PipelineError]:
     try:
         content = path.read_text()
         return IOSuccess(content)
@@ -142,7 +142,7 @@ def read_file(path: Path) -> IOResult[PipelineError, str]:
         ))
 ```
 
-Type parameter order: `IOResult[FailureType, SuccessType]` — error first, success second. This follows the Haskell Either convention.
+Type parameter order: `IOResult[SuccessType, ErrorType]` — success first, error second. The `returns` library uses `IOResult[_ValueType, _ErrorType]`.
 
 **mypy returns plugin**: Already configured in pyproject.toml (`returns.contrib.mypy.returns_plugin`). Required for type inference through `flow()` and `bind()` chains.
 
@@ -209,7 +209,7 @@ from returns.io import IOResult, IOSuccess, IOFailure
 from adws.adw_modules.errors import PipelineError
 
 
-def read_file(path: Path) -> IOResult[PipelineError, str]:
+def read_file(path: Path) -> IOResult[str, PipelineError]:
     """Read file contents. Returns IOResult, never raises."""
     ...
 ```
@@ -233,7 +233,7 @@ from adws.adw_modules.types import WorkflowContext
 from adws.adw_modules.io_ops import check_sdk_import
 
 
-def check_sdk_available(ctx: WorkflowContext) -> IOResult[PipelineError, WorkflowContext]:
+def check_sdk_available(ctx: WorkflowContext) -> IOResult[WorkflowContext, PipelineError]:
     """Verify Claude SDK is available. Pure logic calls io_ops for impure operations."""
     ...
 ```
@@ -467,6 +467,7 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - Modified `pyproject.toml` — added `[tool.coverage.run]` omit for conftest.py
 - Created test files: `test_errors.py` (3), `test_types.py` (6), `test_io_ops.py` (5), `test_check_sdk_available.py` (2), `engine/test_types.py` (6), `test_workflows.py` (6)
 - Created `__init__.py` for test packages: `adw_modules/`, `engine/`, `steps/`, `workflows/`
+- 2026-02-01: Code review (adversarial) — 8 findings (3H/3M/2L), 6 fixed automatically
 
 ### File List
 
@@ -492,3 +493,53 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 - `adws/workflows/__init__.py`
 - `adws/tests/conftest.py`
 - `pyproject.toml`
+
+### Senior Developer Review (AI)
+
+**Reviewer:** Claude Opus 4.5 (adversarial code review)
+**Date:** 2026-02-01
+**Outcome:** Changes Requested -> Fixed
+
+#### Findings (8 total: 3 HIGH, 3 MEDIUM, 2 LOW)
+
+**HIGH (fixed):**
+
+1. **H1: `io_ops.read_file` crashes on `IsADirectoryError`** (io_ops.py)
+   - Caught `FileNotFoundError` and `PermissionError` but `IsADirectoryError` (and other `OSError` subclasses) crashed through uncaught, violating the "never raises" contract
+   - **Fix:** Added general `OSError` catch as fallback after specific handlers; added `test_read_file_is_a_directory` test
+
+2. **H2: `WorkflowContext` "immutability" is shallow** (types.py)
+   - `frozen=True` only prevents attribute reassignment; `dict`/`list` fields remain mutable in-place
+   - Deep immutability would require `MappingProxyType`/`tuple` which adds complexity inappropriate for skeleton
+   - **Fix:** Updated docstring to accurately describe "shallow frozen" limitation and convention
+
+3. **H3: IOResult type parameter order wrong in Dev Notes** (story doc)
+   - Dev Notes code examples showed `IOResult[PipelineError, str]` (error first) but `returns` library uses `IOResult[SuccessType, ErrorType]` (success first)
+   - Code was correct; documentation was wrong
+   - **Fix:** Corrected all Dev Notes code examples and type order description
+
+**MEDIUM (fixed):**
+
+4. **M1: `conftest.py` typed `mocker` as `MagicMock` instead of `MockerFixture`** (conftest.py)
+   - `mocker` fixture is `pytest_mock.MockerFixture`, not `unittest.mock.MagicMock`
+   - **Fix:** Updated TYPE_CHECKING import and annotation; removed stale `type: ignore` comment
+
+5. **M2: `test_check_sdk_available_success` didn't verify returned context** (test_check_sdk_available.py)
+   - Only checked `isinstance(result, IOSuccess)` but didn't verify the unwrapped value was the original context
+   - **Fix:** Added `assert unsafe_perform_io(result.unwrap()) is sample_workflow_context`
+
+6. **M3: `test_check_sdk_import_failure` module reload not in `finally` block** (test_io_ops.py)
+   - If assertion failed between reloads, module stayed corrupted for subsequent tests
+   - **Fix:** Wrapped test body in `try`/`finally` with reload in `finally`
+
+**LOW (not fixed — acceptable):**
+
+7. **L1: RED commit only covers `PipelineError` (Task 1)** — Technically satisfies AC#5 ("at least one") but other modules went straight to GREEN
+
+8. **L2: AC#3 text in story has wrong IOResult order** — AC text comes from epic; not modifying requirements. Documented in Debug Log References.
+
+#### Quality Gates Post-Review
+
+- `uv run pytest adws/tests/`: 29 passed, 100% line+branch coverage
+- `uv run mypy adws/`: Success, no issues in 22 files
+- `uv run ruff check adws/`: All checks passed

@@ -41,6 +41,15 @@ def test_read_file_permission_error(tmp_path: Path) -> None:
     test_file.chmod(0o644)
 
 
+def test_read_file_is_a_directory(tmp_path: Path) -> None:
+    """Test read_file returns IOFailure when path is a directory."""
+    result = read_file(tmp_path)
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "IsADirectoryError"
+
+
 def test_check_sdk_import_success() -> None:
     """Test check_sdk_import returns IOSuccess when SDK is installed."""
     result = check_sdk_import()
@@ -55,14 +64,15 @@ def test_check_sdk_import_failure(mocker) -> None:  # type: ignore[no-untyped-de
     import adws.adw_modules.io_ops  # noqa: PLC0415
 
     importlib.reload(adws.adw_modules.io_ops)
-    from adws.adw_modules.io_ops import (  # noqa: PLC0415
-        check_sdk_import as reloaded_check,
-    )
+    try:
+        from adws.adw_modules.io_ops import (  # noqa: PLC0415
+            check_sdk_import as reloaded_check,
+        )
 
-    result = reloaded_check()
-    # Restore module
-    importlib.reload(adws.adw_modules.io_ops)
-    assert isinstance(result, IOFailure)
-    error = unsafe_perform_io(result.failure())
-    assert isinstance(error, PipelineError)
-    assert error.error_type == "ImportError"
+        result = reloaded_check()
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert isinstance(error, PipelineError)
+        assert error.error_type == "ImportError"
+    finally:
+        importlib.reload(adws.adw_modules.io_ops)

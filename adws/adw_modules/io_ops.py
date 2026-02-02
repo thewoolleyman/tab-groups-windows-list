@@ -32,6 +32,15 @@ def read_file(path: Path) -> IOResult[str, PipelineError]:
                 context={"path": str(path)},
             ),
         )
+    except OSError as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.read_file",
+                error_type=type(exc).__name__,
+                message=f"OS error reading {path}: {exc}",
+                context={"path": str(path)},
+            ),
+        )
 
 
 def check_sdk_import() -> IOResult[bool, PipelineError]:

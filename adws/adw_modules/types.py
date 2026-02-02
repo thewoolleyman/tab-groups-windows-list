@@ -8,7 +8,9 @@ from dataclasses import dataclass, field, replace
 class WorkflowContext:
     """Immutable context flowing through pipeline steps.
 
-    Steps return a NEW context via with_updates(). Never mutate.
+    Frozen dataclass: attribute reassignment is blocked. Container fields
+    (dicts, lists) are shallow-frozen — callers MUST NOT mutate them in
+    place. Steps return a NEW context via with_updates(). Never mutate.
     """
 
     inputs: dict[str, object] = field(default_factory=dict)

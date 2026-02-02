@@ -10,6 +10,8 @@ from adws.adw_modules.types import WorkflowContext
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
+    from pytest_mock import MockerFixture
+
 
 @pytest.fixture
 def sample_workflow_context() -> WorkflowContext:
@@ -22,6 +24,6 @@ def sample_workflow_context() -> WorkflowContext:
 
 
 @pytest.fixture
-def mock_io_ops(mocker: MagicMock) -> MagicMock:
+def mock_io_ops(mocker: MockerFixture) -> MagicMock:
     """Return a mocked io_ops module for boundary testing."""
-    return mocker.patch("adws.adw_modules.io_ops")  # type: ignore[no-any-return]
+    return mocker.patch("adws.adw_modules.io_ops")
