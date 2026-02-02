@@ -7,6 +7,10 @@ from typing import TYPE_CHECKING
 from returns.io import IOFailure, IOResult, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
+from adws.adw_modules.engine.combinators import (
+    sequence,
+    with_verification,
+)
 from adws.adw_modules.engine.executor import (
     _resolve_input_from,
     _resolve_step_function,
@@ -19,6 +23,7 @@ from adws.adw_modules.engine.types import Step, Workflow
 from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.steps import check_sdk_available, execute_shell_step
 from adws.adw_modules.types import WorkflowContext
+from adws.workflows import WorkflowName, load_workflow
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -2305,3 +2310,311 @@ class TestResolveInputFrom:
         error = unsafe_perform_io(result.failure())
         assert error.error_type == "InputFromCollisionError"
         assert "existing" in error.message
+
+
+# --- Story 2.7: Sample workflow integration tests ---
+
+
+class TestSampleWorkflowIntegration:
+    """Integration tests for sample workflow execution."""
+
+    def test_sample_workflow_full_success(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """All 3 steps succeed, context propagates, outputs."""
+        wf = load_workflow(WorkflowName.SAMPLE)
+        assert wf is not None
+
+        calls: list[str] = []
+        shell_received: list[WorkflowContext] = []
+
+        def sdk_fn(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            calls.append("sdk_call")
+            return IOSuccess(
+                ctx.merge_outputs({"sdk_ok": True}),
+            )
+
+        def shell_fn(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            calls.append("shell_call")
+            shell_received.append(ctx)
+            return IOSuccess(
+                ctx.merge_outputs(
+                    {"shell_stdout": "processing\n"},
+                ),
+            )
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"check_sdk_available": sdk_fn},
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor"
+            ".execute_shell_step",
+            side_effect=shell_fn,
+        )
+
+        ctx = WorkflowContext()
+        result = run_workflow(wf, ctx)
+        assert isinstance(result, IOSuccess)
+        final = unsafe_perform_io(result.unwrap())
+        # All 3 steps called (setup=sdk, process=shell, cleanup=sdk)
+        assert calls == [
+            "sdk_call", "shell_call", "sdk_call",
+        ]
+        # Verify data flow: process step received setup
+        # outputs via input_from={"setup_data": "setup_result"}
+        assert len(shell_received) == 1
+        proc_ctx = shell_received[0]
+        assert proc_ctx.inputs["setup_result"] == {
+            "sdk_ok": True,
+        }
+        # Setup outputs also promoted implicitly
+        assert proc_ctx.inputs["sdk_ok"] is True
+        # Final context has accumulated inputs
+        assert final.inputs["sdk_ok"] is True
+        assert final.inputs["shell_stdout"] == "processing\n"
+        # Final step outputs present
+        assert final.outputs["sdk_ok"] is True
+
+    def test_sample_workflow_middle_step_fails(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Step 2 fails after retries, always_run executes."""
+        wf = load_workflow(WorkflowName.SAMPLE)
+        assert wf is not None
+
+        calls: list[str] = []
+        shell_received: list[WorkflowContext] = []
+
+        def sdk_fn(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            calls.append("sdk_call")
+            return IOSuccess(
+                ctx.merge_outputs({"sdk_ok": True}),
+            )
+
+        def failing_shell(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            calls.append("shell_attempt")
+            shell_received.append(ctx)
+            return IOFailure(
+                PipelineError(
+                    step_name="process",
+                    error_type="ProcessError",
+                    message="process failed",
+                    context={},
+                ),
+            )
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"check_sdk_available": sdk_fn},
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor"
+            ".execute_shell_step",
+            side_effect=failing_shell,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor.sleep_seconds",
+        )
+
+        ctx = WorkflowContext()
+        result = run_workflow(wf, ctx)
+        # Pipeline fails due to process step
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert "process failed" in error.message
+        # Step 2 retried (max_attempts=2 -> 2 attempts)
+        assert calls.count("shell_attempt") == 2
+        # Cleanup (always_run) still executed
+        assert "sdk_call" in calls
+        # Setup ran first, then 2 shell attempts, then cleanup
+        assert calls[0] == "sdk_call"
+        assert calls[-1] == "sdk_call"
+        # Step 1 outputs propagated before failure:
+        # process step received setup data via input_from
+        assert len(shell_received) >= 1
+        first_attempt_ctx = shell_received[0]
+        assert first_attempt_ctx.inputs["setup_result"] == {
+            "sdk_ok": True,
+        }
+        assert first_attempt_ctx.inputs["sdk_ok"] is True
+
+    def test_sample_workflow_combinator_equivalent(
+        self,
+    ) -> None:
+        """Combinator-built version has identical structure."""
+        wf = load_workflow(WorkflowName.SAMPLE)
+        assert wf is not None
+
+        # Build equivalent using combinators
+        setup_step = Step(
+            name="setup",
+            function="check_sdk_available",
+            output="setup_data",
+        )
+        process_step = Step(  # noqa: S604
+            name="process",
+            function="execute_shell_step",
+            shell=True,
+            command="echo 'processing'",
+            max_attempts=2,
+            retry_delay_seconds=0.0,
+            input_from={"setup_data": "setup_result"},
+        )
+        cleanup_step = Step(
+            name="cleanup",
+            function="check_sdk_available",
+            always_run=True,
+        )
+
+        setup_process = with_verification(
+            setup_step,
+            process_step,
+            verify_max_attempts=2,
+        )
+        cleanup_wf = Workflow(
+            name="cleanup",
+            description="cleanup",
+            steps=[cleanup_step],
+        )
+        combo_wf = sequence(setup_process, cleanup_wf)
+
+        # Same step count
+        assert len(combo_wf.steps) == len(wf.steps)
+        # Same step names in same order
+        combo_names = [s.name for s in combo_wf.steps]
+        wf_names = [s.name for s in wf.steps]
+        assert combo_names == wf_names
+        # Verify each step's properties match
+        for combo_s, wf_s in zip(
+            combo_wf.steps, wf.steps, strict=True,
+        ):
+            assert combo_s.function == wf_s.function
+            assert combo_s.shell == wf_s.shell
+            assert combo_s.command == wf_s.command
+            assert combo_s.max_attempts == wf_s.max_attempts
+            assert (
+                combo_s.retry_delay_seconds
+                == wf_s.retry_delay_seconds
+            )
+            assert combo_s.output == wf_s.output
+            assert combo_s.input_from == wf_s.input_from
+            assert combo_s.always_run == wf_s.always_run
+        # Combinator version is not dispatchable
+        assert combo_wf.dispatchable is False
+
+
+# --- Story 2.7: Engine combinator execution tests ---
+
+
+class TestEngineCombinatorExecution:
+    """Tests for engine execution of combinator workflows."""
+
+    def test_engine_executes_combinator_workflow(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """run_workflow with sequence-produced workflow works."""
+        wf_a = Workflow(
+            name="a",
+            description="a",
+            steps=[
+                Step(
+                    name="s1",
+                    function="fn1",
+                    output="s1_out",
+                ),
+            ],
+        )
+        wf_b = Workflow(
+            name="b",
+            description="b",
+            steps=[
+                Step(
+                    name="s2",
+                    function="fn2",
+                    input_from={"s1_out": "data"},
+                ),
+            ],
+        )
+        combined = sequence(wf_a, wf_b)
+
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(
+                ctx.merge_outputs({"captured": True}),
+            )
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("a_val", 42),
+                "fn2": capture_step,
+            },
+        )
+
+        ctx = WorkflowContext(inputs={"init": "x"})
+        result = run_workflow(combined, ctx)
+        assert isinstance(result, IOSuccess)
+        # Step 2 received data from step 1 via input_from
+        assert received[0].inputs["data"] == {"a_val": 42}
+        # Implicit promote also works
+        assert received[0].inputs["a_val"] == 42
+        assert received[0].inputs["init"] == "x"
+
+    def test_engine_with_verification_workflow(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """run_workflow with with_verification workflow works."""
+        main = Step(name="impl", function="fn1")
+        verify = Step(name="verify", function="fn2")
+        wf = with_verification(main, verify)
+
+        calls: list[str] = []
+
+        def track_fn(
+            name: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(name)
+                return IOSuccess(
+                    ctx.merge_outputs({name: True}),
+                )
+
+            return step
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": track_fn("impl"),
+                "fn2": track_fn("verify"),
+            },
+        )
+
+        ctx = WorkflowContext()
+        result = run_workflow(wf, ctx)
+        assert isinstance(result, IOSuccess)
+        # Both steps executed in order
+        assert calls == ["impl", "verify"]
+        final = unsafe_perform_io(result.unwrap())
+        # Verify step outputs present
+        assert final.outputs["verify"] is True
+        # Impl outputs promoted to inputs
+        assert final.inputs["impl"] is True

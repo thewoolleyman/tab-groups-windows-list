@@ -1,5 +1,5 @@
 """Tests for workflow registry and discovery."""
-from adws.adw_modules.engine.types import Workflow
+from adws.adw_modules.engine.types import Step, Workflow
 from adws.workflows import WorkflowName, list_workflows, load_workflow
 
 
@@ -78,3 +78,52 @@ def test_workflows_are_declarative_data() -> None:
         assert isinstance(wf.description, str)
         assert isinstance(wf.steps, list)
         assert isinstance(wf.dispatchable, bool)
+
+
+# --- Story 2.7: Sample workflow registry tests ---
+
+
+def test_sample_workflow_registered() -> None:
+    """load_workflow("sample") returns sample workflow."""
+    wf = load_workflow(WorkflowName.SAMPLE)
+    assert wf is not None
+    assert isinstance(wf, Workflow)
+    assert wf.name == WorkflowName.SAMPLE
+
+
+def test_sample_workflow_not_dispatchable() -> None:
+    """Sample workflow has dispatchable=False."""
+    wf = load_workflow(WorkflowName.SAMPLE)
+    assert wf is not None
+    assert wf.dispatchable is False
+
+
+def test_sample_workflow_has_steps() -> None:
+    """Sample workflow has 3 steps with expected names."""
+    wf = load_workflow(WorkflowName.SAMPLE)
+    assert wf is not None
+    assert len(wf.steps) == 3
+    names = [s.name for s in wf.steps]
+    assert names == ["setup", "process", "cleanup"]
+    # Verify step types
+    for step in wf.steps:
+        assert isinstance(step, Step)
+
+
+def test_sample_workflow_not_in_dispatchable_list() -> None:
+    """Sample workflow excluded from dispatchable listing."""
+    dispatchable = list_workflows(dispatchable_only=True)
+    names = [w.name for w in dispatchable]
+    assert WorkflowName.SAMPLE not in names
+
+
+def test_sample_workflow_in_all_list() -> None:
+    """Sample workflow appears in all-workflows listing."""
+    all_wfs = list_workflows()
+    names = [w.name for w in all_wfs]
+    assert WorkflowName.SAMPLE in names
+
+
+def test_sample_workflow_name_constant() -> None:
+    """WorkflowName.SAMPLE equals 'sample'."""
+    assert WorkflowName.SAMPLE == "sample"

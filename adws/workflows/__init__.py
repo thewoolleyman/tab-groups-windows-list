@@ -10,6 +10,7 @@ class WorkflowName:
     IMPLEMENT_CLOSE = "implement_close"
     IMPLEMENT_VERIFY_CLOSE = "implement_verify_close"
     CONVERT_STORIES_TO_BEADS = "convert_stories_to_beads"
+    SAMPLE = "sample"
 
 
 # --- Registered workflows ---
@@ -38,10 +39,40 @@ _CONVERT_STORIES_TO_BEADS = Workflow(
     steps=[],  # Steps populated in Epic 6
 )
 
+_SAMPLE = Workflow(
+    name=WorkflowName.SAMPLE,
+    description=(
+        "Sample workflow demonstrating full Epic 2 pipeline"
+    ),
+    dispatchable=False,
+    steps=[
+        Step(
+            name="setup",
+            function="check_sdk_available",
+            output="setup_data",
+        ),
+        Step(  # noqa: S604
+            name="process",
+            function="execute_shell_step",
+            shell=True,
+            command="echo 'processing'",
+            max_attempts=2,
+            retry_delay_seconds=0.0,
+            input_from={"setup_data": "setup_result"},
+        ),
+        Step(
+            name="cleanup",
+            function="check_sdk_available",
+            always_run=True,
+        ),
+    ],
+)
+
 _REGISTRY: dict[str, Workflow] = {
     _IMPLEMENT_CLOSE.name: _IMPLEMENT_CLOSE,
     _IMPLEMENT_VERIFY_CLOSE.name: _IMPLEMENT_VERIFY_CLOSE,
     _CONVERT_STORIES_TO_BEADS.name: _CONVERT_STORIES_TO_BEADS,
+    _SAMPLE.name: _SAMPLE,
 }
 
 
