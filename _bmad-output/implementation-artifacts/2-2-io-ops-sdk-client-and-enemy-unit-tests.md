@@ -1,6 +1,6 @@
 # Story 2.2: io_ops SDK Client & Enemy Unit Tests
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -332,6 +332,24 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 - 2026-02-01: Story created with comprehensive context from all planning artifacts, SDK API research, and previous story intelligence
 - 2026-02-01: Implemented all 4 tasks via TDD red-green-refactor. 65 tests pass, 100% coverage, mypy/ruff clean
+- 2026-02-01: Senior Developer Review completed. Auto-fixed 3 medium and 1 low issue. Status -> done.
+
+## Senior Developer Review (AI)
+
+**Reviewer:** BMAD Senior Developer Agent (Adversarial Mode)
+**Date:** 2026-02-01
+**Outcome:** ✅ APPROVED (after auto-fixes)
+
+### Findings & Fixes
+- **Medium (Fixed)**: `io_ops.py` used `# type: ignore[arg-type]` for `permission_mode` masking potential type mismatch. Fixed by defining `PermissionMode` Literal in `types.py`.
+- **Medium (Fixed)**: `execute_sdk_call` masked specific SDK/Async errors with generic `NoResultError`. Fixed by introducing internal `_NoResultError` for precise control flow.
+- **Medium (Fixed)**: `AdwsRequest` had hardcoded model string. Refactored to `DEFAULT_CLAUDE_MODEL` constant.
+- **Low (Fixed)**: Enemy Unit Test assertions were too loose. Tightened to assert exact "PONG" response and positive cost.
+
+### Verification
+- All tests passed (65 tests, 100% coverage).
+- Mypy strict checks passed.
+- Ruff linting clean.
 
 ### File List
 

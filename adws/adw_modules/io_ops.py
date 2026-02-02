@@ -73,6 +73,10 @@ def check_sdk_import() -> IOResult[bool, PipelineError]:
         )
 
 
+class _NoResultError(Exception):
+    """Internal exception when SDK yields no ResultMessage."""
+
+
 async def _execute_sdk_call_async(
     request: AdwsRequest,
 ) -> AdwsResponse:
@@ -83,7 +87,7 @@ async def _execute_sdk_call_async(
         allowed_tools=request.allowed_tools or [],
         disallowed_tools=request.disallowed_tools or [],
         max_turns=request.max_turns,
-        permission_mode=request.permission_mode,  # type: ignore[arg-type]
+        permission_mode=request.permission_mode,
     )
 
     result_msg: ResultMessage | None = None
@@ -93,7 +97,7 @@ async def _execute_sdk_call_async(
 
     if result_msg is None:
         msg = "No ResultMessage received from SDK"
-        raise ValueError(msg)
+        raise _NoResultError(msg)
 
     return AdwsResponse(
         result=result_msg.result,
@@ -111,7 +115,7 @@ def execute_sdk_call(
     """Execute SDK call. Synchronous wrapper around async SDK."""
     try:
         response = asyncio.run(_execute_sdk_call_async(request))
-    except ValueError as exc:
+    except _NoResultError as exc:
         return IOFailure(
             PipelineError(
                 step_name="io_ops.execute_sdk_call",

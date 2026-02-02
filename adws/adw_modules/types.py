@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514"
+
+PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
 
 @dataclass(frozen=True)
@@ -64,13 +69,13 @@ class AdwsRequest(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    model: str = "claude-sonnet-4-20250514"
+    model: str = DEFAULT_CLAUDE_MODEL
     system_prompt: str
     prompt: str
     allowed_tools: list[str] | None = None
     disallowed_tools: list[str] | None = None
     max_turns: int | None = None
-    permission_mode: str | None = None
+    permission_mode: PermissionMode | None = None
 
 
 class AdwsResponse(BaseModel):

@@ -35,12 +35,13 @@ def test_eut_execute_sdk_call_round_trip() -> None:
     assert isinstance(result, IOSuccess)
     response = unsafe_perform_io(result.unwrap())
     assert isinstance(response, AdwsResponse)
-    assert response.result is not None
-    assert len(response.result) > 0
+    assert response.result == "PONG"
     assert response.is_error is False
     assert response.session_id is not None
     assert response.duration_ms is not None
     assert response.duration_ms > 0
+    assert response.cost_usd is not None
+    assert response.cost_usd > 0.0
     assert response.num_turns is not None
     assert response.num_turns >= 1
 
