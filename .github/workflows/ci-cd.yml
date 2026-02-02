@@ -39,9 +39,7 @@ jobs:
             popup.html \
             popup.js \
             icons/ \
-            -x "*.git*" -x "node_modules/*" -x "tests/*" -x "screenshots/*" \
-            -x "playwright-report/*" -x "*.config.js" -x "package*.json" \
-            -x ".github/*" -x "dist/*"
+            -x "*.git*"
           echo "Created package: dist/extension-v${{ steps.get_version.outputs.version }}.zip"
           ls -la dist/
 
@@ -130,17 +128,19 @@ jobs:
       - name: Setup runtimes via mise
         uses: jdx/mise-action@v2
 
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-
+
       - name: Install Python dependencies
         run: uv sync --frozen
 
-      - name: Lint (ruff)
-        run: uv run ruff check adws/
-
-      - name: Type check (mypy)
-        run: uv run mypy adws/
-
-      - name: Test with coverage (pytest)
-        run: uv run pytest adws/tests/
+      - name: Run Python Quality Gates
+        run: ./scripts/verify-python.sh
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 

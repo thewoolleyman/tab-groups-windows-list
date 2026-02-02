@@ -44,7 +44,7 @@ development_status:
   epic-1: in-progress
   1-1-project-scaffold-and-dual-toolchain-setup: done
   1-2-skeleton-layer-implementations-and-tdd-foundation: done
-  1-3-ci-pipeline-and-quality-gate-enforcement: review
+  1-3-ci-pipeline-and-quality-gate-enforcement: done
   epic-1-retrospective: optional
 
   # Epic 2: Pipeline Engine & Workflow Types

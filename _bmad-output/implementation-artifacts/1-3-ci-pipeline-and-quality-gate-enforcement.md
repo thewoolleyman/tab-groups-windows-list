@@ -1,6 +1,6 @@
 # Story 1.3: CI Pipeline & Quality Gate Enforcement
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -310,8 +310,10 @@ Claude Opus 4.5 (claude-opus-4-5-20251101)
 ### Change Log
 
 - 2026-02-01: Implemented CI pipeline changes (Tasks 1-4), verified merge blocking (Task 5), confirmed local-CI parity (Task 6)
+- 2026-02-01: Addressed adversarial review findings: created `scripts/verify-python.sh` to remove duplication, added `uv` caching, and removed redundant zip exclusions.
 
 ### File List
 
-- `.github/workflows/ci-cd.yml` — Modified (added python job, updated JS jobs to use mise, added python to release needs)
-- `.github/workflows/auto-merge.yml` — Modified (replaced setup-node with mise, added Python quality gates)
+- `.github/workflows/ci-cd.yml` — Modified (added python job, updated JS jobs to use mise, added python to release needs, refactored to use script, added caching, simplified zip)
+- `.github/workflows/auto-merge.yml` — Modified (replaced setup-node with mise, added Python quality gates, refactored to use script, added caching)
+- `scripts/verify-python.sh` — Created (consolidates python quality gates)
