@@ -8,8 +8,10 @@ from returns.io import IOFailure, IOResult, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
 from adws.adw_modules.engine.executor import (
+    _resolve_input_from,
     _resolve_step_function,
     _run_step_with_retry,
+    _should_skip_step,
     run_step,
     run_workflow,
 )
@@ -1183,3 +1185,1123 @@ class TestRetryWorkflowIntegration:
         error = unsafe_perform_io(result.failure())
         assert "always fails" in error.message
         assert cleanup_called == [True]
+
+
+# --- Story 2.6: Output data flow tests ---
+
+
+class TestOutputDataFlow:
+    """Tests for output data flow registry in run_workflow."""
+
+    def test_output_registered_in_data_flow(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Step with output set registers in data flow."""
+        # Step 1 outputs data with output="s1_data"
+        # Step 2 uses input_from to pull from s1_data
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(
+                ctx.merge_outputs({"result": "done"}),
+            )
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_data",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                input_from={"s1_data": "source"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("key1", "val1"),
+                "fn2": capture_step,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        # Step 2 received s1's outputs via input_from
+        assert received[0].inputs["source"] == {
+            "key1": "val1",
+        }
+
+    def test_output_empty_outputs_registered(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Step with output set but no outputs: registered empty."""
+
+        def noop_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            return IOSuccess(ctx)
+
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(ctx)
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_data",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                input_from={"s1_data": "source"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": noop_step, "fn2": capture_step},
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        # Empty dict registered
+        assert received[0].inputs["source"] == {}
+
+    def test_output_not_set_no_registration(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Step without output field does not register."""
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="s2",
+                function="fn2",
+                input_from={"s1_data": "source"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("k", "v"),
+                "fn2": _make_success_step("k2", "v2"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "MissingInputFromError"
+        assert "s1_data" in error.message
+
+
+# --- Story 2.6: input_from data flow tests ---
+
+
+class TestInputFromDataFlow:
+    """Tests for input_from resolution in run_workflow."""
+
+    def test_input_from_resolves_single_source(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """input_from maps data from one upstream step."""
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(
+                ctx.merge_outputs({"done": True}),
+            )
+
+        steps = [
+            Step(
+                name="producer",
+                function="fn1",
+                output="prod_out",
+            ),
+            Step(
+                name="consumer",
+                function="fn2",
+                input_from={"prod_out": "my_data"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("x", 42),
+                "fn2": capture_step,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        assert received[0].inputs["my_data"] == {"x": 42}
+
+    def test_input_from_resolves_multiple_sources(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """input_from maps data from multiple upstream steps."""
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(ctx)
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_out",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                output="s2_out",
+            ),
+            Step(
+                name="s3",
+                function="fn3",
+                input_from={
+                    "s1_out": "from_s1",
+                    "s2_out": "from_s2",
+                },
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("a", 1),
+                "fn2": _make_success_step("b", 2),
+                "fn3": capture_step,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        assert received[0].inputs["from_s1"] == {"a": 1}
+        assert received[0].inputs["from_s2"] == {"b": 2}
+
+    def test_input_from_missing_source_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Missing input_from source produces PipelineError."""
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="actual_name",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                input_from={"wrong_name": "data"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("k", "v"),
+                "fn2": _make_success_step("k2", "v2"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "MissingInputFromError"
+        assert "wrong_name" in error.message
+        assert "actual_name" in error.message
+        assert error.step_name == "s2"
+
+    def test_input_from_collision_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """input_from collision with existing input key."""
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_out",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                input_from={"s1_out": "existing_key"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("k", "v"),
+                "fn2": _make_success_step("k2", "v2"),
+            },
+        )
+        ctx = WorkflowContext(
+            inputs={"existing_key": "original"},
+        )
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "InputFromCollisionError"
+        assert "existing_key" in error.message
+        assert error.step_name == "s2"
+
+    def test_input_from_and_promote_coexist(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Both implicit and explicit flow in same workflow."""
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(
+                ctx.merge_outputs({"final": "done"}),
+            )
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_out",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                input_from={"s1_out": "explicit_data"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("imp_key", "imp_v"),
+                "fn2": capture_step,
+            },
+        )
+        ctx = WorkflowContext(inputs={"init": "data"})
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        # Both implicit (promoted) and explicit (input_from)
+        assert received[0].inputs["init"] == "data"
+        # Promoted from s1
+        assert received[0].inputs["imp_key"] == "imp_v"
+        # Explicit via input_from
+        assert received[0].inputs["explicit_data"] == {
+            "imp_key": "imp_v",
+        }
+
+
+# --- Story 2.6: Condition predicate tests ---
+
+
+class TestConditionPredicate:
+    """Tests for condition predicate in run_workflow."""
+
+    def test_condition_true_executes(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Condition returns True, step runs normally."""
+        executed: list[bool] = []
+
+        def track_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            executed.append(True)
+            return IOSuccess(
+                ctx.merge_outputs({"ran": True}),
+            )
+
+        def always_true(ctx: WorkflowContext) -> bool:
+            return True
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                condition=always_true,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": track_step},
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        assert executed == [True]
+
+    def test_condition_false_skips(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Condition returns False, step skipped, no error."""
+        step_mock = mocker.Mock()
+
+        def always_false(ctx: WorkflowContext) -> bool:
+            return False
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                condition=always_false,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": step_mock},
+        )
+        ctx = WorkflowContext(inputs={"init": "val"})
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        step_mock.assert_not_called()
+
+    def test_condition_false_no_output_registered(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Skipped step's output NOT in data flow registry."""
+
+        def always_false(ctx: WorkflowContext) -> bool:
+            return False
+
+        steps = [
+            Step(
+                name="skipped",
+                function="fn1",
+                condition=always_false,
+                output="skipped_data",
+            ),
+            Step(
+                name="consumer",
+                function="fn2",
+                input_from={"skipped_data": "data"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("k", "v"),
+                "fn2": _make_success_step("k2", "v2"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "MissingInputFromError"
+        assert "skipped_data" in error.message
+
+    def test_condition_false_subsequent_steps_run(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Steps after skipped step still execute."""
+        executed: list[str] = []
+
+        def track(
+            name: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                executed.append(name)
+                return IOSuccess(
+                    ctx.merge_outputs({name: True}),
+                )
+
+            return step
+
+        def always_false(ctx: WorkflowContext) -> bool:
+            return False
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                condition=always_false,
+            ),
+            Step(name="s2", function="fn2"),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": track("s1"), "fn2": track("s2")},
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        assert executed == ["s2"]
+
+    def test_condition_none_always_executes(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """No condition set, step always runs (backward compat)."""
+        executed: list[bool] = []
+
+        def track_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            executed.append(True)
+            return IOSuccess(ctx)
+
+        steps = [
+            Step(name="s1", function="fn1"),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": track_step},
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        assert executed == [True]
+
+    def test_condition_always_run_failure_path(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """always_run + condition=True in failure path: executes."""
+        cleanup_ran: list[bool] = []
+
+        def cleanup(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            cleanup_ran.append(True)
+            return IOSuccess(ctx)
+
+        def always_true(ctx: WorkflowContext) -> bool:
+            return True
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+                condition=always_true,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": cleanup,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        assert cleanup_ran == [True]
+
+    def test_condition_always_run_false_skipped(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """always_run + condition=False in failure: skipped."""
+        cleanup_mock = mocker.Mock()
+
+        def always_false(ctx: WorkflowContext) -> bool:
+            return False
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+                condition=always_false,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": cleanup_mock,
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        cleanup_mock.assert_not_called()
+
+    def test_condition_receives_current_context(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Condition callable receives current (not initial) ctx."""
+        condition_ctxs: list[WorkflowContext] = []
+
+        def tracking_condition(
+            ctx: WorkflowContext,
+        ) -> bool:
+            condition_ctxs.append(ctx)
+            return True
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="s2",
+                function="fn2",
+                condition=tracking_condition,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("from_s1", "v"),
+                "fn2": _make_success_step("from_s2", "w"),
+            },
+        )
+        ctx = WorkflowContext(inputs={"init": "data"})
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        # Condition received context after s1 promotion
+        assert len(condition_ctxs) == 1
+        assert condition_ctxs[0].inputs["from_s1"] == "v"
+        assert condition_ctxs[0].inputs["init"] == "data"
+
+    def test_condition_after_failure_normal_skip(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Non-always_run + condition after failure: skipped."""
+        condition_mock = mocker.Mock(return_value=True)
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="s2",
+                function="fn2",
+                condition=condition_mock,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": _make_success_step("k", "v"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        # Condition was NOT evaluated for skipped step
+        condition_mock.assert_not_called()
+
+    def test_input_from_error_always_run_failure_path(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """input_from error on always_run step in failure path."""
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+                input_from={"missing": "data"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": _make_success_step("k", "v"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        # Original error preserved
+        assert "boom" in error.message
+        # input_from error tracked in always_run_failures
+        ar_failures = error.context["always_run_failures"]
+        assert isinstance(ar_failures, list)
+        assert len(ar_failures) == 1
+        assert "MissingInputFromError" in str(
+            ar_failures[0],
+        )
+
+    def test_condition_exception_produces_error(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Condition predicate that raises gives PipelineError."""
+
+        def exploding(ctx: WorkflowContext) -> bool:
+            msg = "predicate exploded"
+            raise RuntimeError(msg)
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                condition=exploding,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {"fn1": _make_success_step("k", "v")},
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "ConditionEvaluationError"
+        assert "predicate exploded" in error.message
+        assert error.step_name == "s1"
+        assert (
+            error.context["exception_type"] == "RuntimeError"
+        )
+
+    def test_condition_exception_always_run_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Condition exception on always_run in failure path."""
+
+        def exploding(ctx: WorkflowContext) -> bool:
+            msg = "cleanup condition failed"
+            raise ValueError(msg)
+
+        steps = [
+            Step(name="s1", function="fn1"),
+            Step(
+                name="cleanup",
+                function="fn2",
+                always_run=True,
+                condition=exploding,
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_failure_step("boom"),
+                "fn2": _make_success_step("k", "v"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        # Original error preserved
+        assert "boom" in error.message
+        # Condition error tracked in always_run_failures
+        ar_failures = error.context["always_run_failures"]
+        assert isinstance(ar_failures, list)
+        assert len(ar_failures) == 1
+        assert "ConditionEvaluationError" in str(
+            ar_failures[0],
+        )
+
+
+# --- Story 2.6: _should_skip_step tests ---
+
+
+class TestShouldSkipStep:
+    """Tests for _should_skip_step helper function."""
+
+    def test_skip_non_always_run_after_failure(self) -> None:
+        """Non-always_run step skipped after pipeline failure."""
+        step = Step(name="s", function="f")
+        ctx = WorkflowContext()
+        err = PipelineError(
+            step_name="x",
+            error_type="E",
+            message="boom",
+            context={},
+        )
+        result = _should_skip_step(step, ctx, err)
+        assert isinstance(result, IOSuccess)
+        assert unsafe_perform_io(result.unwrap()) is True
+
+    def test_no_skip_always_run_after_failure(self) -> None:
+        """always_run step NOT skipped after pipeline failure."""
+        step = Step(
+            name="s", function="f", always_run=True,
+        )
+        ctx = WorkflowContext()
+        err = PipelineError(
+            step_name="x",
+            error_type="E",
+            message="boom",
+            context={},
+        )
+        result = _should_skip_step(step, ctx, err)
+        assert isinstance(result, IOSuccess)
+        assert unsafe_perform_io(result.unwrap()) is False
+
+    def test_skip_false_condition(self) -> None:
+        """Step with false condition is skipped."""
+
+        def nope(ctx: WorkflowContext) -> bool:
+            return False
+
+        step = Step(
+            name="s", function="f", condition=nope,
+        )
+        ctx = WorkflowContext()
+        result = _should_skip_step(step, ctx, None)
+        assert isinstance(result, IOSuccess)
+        assert unsafe_perform_io(result.unwrap()) is True
+
+    def test_no_skip_true_condition(self) -> None:
+        """Step with true condition runs."""
+
+        def yes(ctx: WorkflowContext) -> bool:
+            return True
+
+        step = Step(
+            name="s", function="f", condition=yes,
+        )
+        ctx = WorkflowContext()
+        result = _should_skip_step(step, ctx, None)
+        assert isinstance(result, IOSuccess)
+        assert unsafe_perform_io(result.unwrap()) is False
+
+    def test_no_skip_no_condition(self) -> None:
+        """Step without condition runs normally."""
+        step = Step(name="s", function="f")
+        ctx = WorkflowContext()
+        result = _should_skip_step(step, ctx, None)
+        assert isinstance(result, IOSuccess)
+        assert unsafe_perform_io(result.unwrap()) is False
+
+    def test_condition_exception_returns_failure(self) -> None:
+        """Condition that raises returns IOFailure."""
+
+        def boom(ctx: WorkflowContext) -> bool:
+            msg = "broken"
+            raise RuntimeError(msg)
+
+        step = Step(
+            name="bad", function="f", condition=boom,
+        )
+        ctx = WorkflowContext()
+        result = _should_skip_step(step, ctx, None)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "ConditionEvaluationError"
+        assert "broken" in error.message
+        assert error.step_name == "bad"
+
+
+# --- Story 2.6: Integration tests ---
+
+
+class TestDataFlowIntegration:
+    """Integration tests for data flow + condition + always_run."""
+
+    def test_full_data_flow_pipeline(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """3 steps with output/input_from, data flows."""
+        received: list[WorkflowContext] = []
+
+        def capture_step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            received.append(ctx)
+            return IOSuccess(
+                ctx.merge_outputs({"s3_out": "final"}),
+            )
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_out",
+            ),
+            Step(
+                name="s2",
+                function="fn2",
+                output="s2_out",
+            ),
+            Step(
+                name="s3",
+                function="fn3",
+                input_from={
+                    "s1_out": "from_s1",
+                    "s2_out": "from_s2",
+                },
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": _make_success_step("a", 1),
+                "fn2": _make_success_step("b", 2),
+                "fn3": capture_step,
+            },
+        )
+        ctx = WorkflowContext(inputs={"init": "x"})
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        # s3 got both s1 and s2 data via input_from
+        assert received[0].inputs["from_s1"] == {"a": 1}
+        assert received[0].inputs["from_s2"] == {"b": 2}
+        # Also got implicit promoted data
+        assert received[0].inputs["init"] == "x"
+        assert received[0].inputs["a"] == 1
+        assert received[0].inputs["b"] == 2
+
+    def test_condition_plus_data_flow_plus_always_run(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Conditional skip, always_run, data flow combined."""
+        executed: list[str] = []
+
+        def track(
+            name: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                executed.append(name)
+                return IOSuccess(
+                    ctx.merge_outputs({name: True}),
+                )
+
+            return step
+
+        def always_false(ctx: WorkflowContext) -> bool:
+            return False
+
+        steps = [
+            Step(
+                name="s1",
+                function="fn1",
+                output="s1_out",
+            ),
+            Step(
+                name="skip_me",
+                function="fn2",
+                condition=always_false,
+                output="skip_out",
+            ),
+            Step(
+                name="s3",
+                function="fn3",
+                input_from={"s1_out": "data"},
+            ),
+        ]
+        workflow = Workflow(
+            name="wf",
+            description="test",
+            steps=steps,
+        )
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "fn1": track("s1"),
+                "fn2": track("skip_me"),
+                "fn3": track("s3"),
+            },
+        )
+        ctx = WorkflowContext()
+        result = run_workflow(workflow, ctx)
+        assert isinstance(result, IOSuccess)
+        # skip_me was skipped, others executed
+        assert executed == ["s1", "s3"]
+
+
+# --- Story 2.6: _resolve_input_from tests ---
+
+
+class TestResolveInputFrom:
+    """Tests for _resolve_input_from helper function."""
+
+    def test_resolve_input_from_none(self) -> None:
+        """No input_from returns context unchanged."""
+        step = Step(name="s", function="f")
+        ctx = WorkflowContext(inputs={"k": "v"})
+        registry: dict[str, dict[str, object]] = {}
+        result = _resolve_input_from(step, ctx, registry)
+        assert isinstance(result, IOSuccess)
+        resolved = unsafe_perform_io(result.unwrap())
+        assert resolved.inputs == {"k": "v"}
+
+    def test_resolve_input_from_success(self) -> None:
+        """Successful resolution merges data."""
+        step = Step(
+            name="s",
+            function="f",
+            input_from={"src": "dest"},
+        )
+        ctx = WorkflowContext(inputs={"k": "v"})
+        registry: dict[str, dict[str, object]] = {
+            "src": {"data": 42},
+        }
+        result = _resolve_input_from(step, ctx, registry)
+        assert isinstance(result, IOSuccess)
+        resolved = unsafe_perform_io(result.unwrap())
+        assert resolved.inputs["dest"] == {"data": 42}
+        assert resolved.inputs["k"] == "v"
+
+    def test_resolve_input_from_missing(self) -> None:
+        """Missing source produces IOFailure."""
+        step = Step(
+            name="s",
+            function="f",
+            input_from={"missing": "dest"},
+        )
+        ctx = WorkflowContext()
+        registry: dict[str, dict[str, object]] = {
+            "other": {},
+        }
+        result = _resolve_input_from(step, ctx, registry)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "MissingInputFromError"
+        assert "missing" in error.message
+        assert "other" in error.message
+
+    def test_resolve_input_from_collision(self) -> None:
+        """Collision with existing input key."""
+        step = Step(
+            name="s",
+            function="f",
+            input_from={"src": "existing"},
+        )
+        ctx = WorkflowContext(
+            inputs={"existing": "original"},
+        )
+        registry: dict[str, dict[str, object]] = {
+            "src": {"data": 42},
+        }
+        result = _resolve_input_from(step, ctx, registry)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        assert error.error_type == "InputFromCollisionError"
+        assert "existing" in error.message

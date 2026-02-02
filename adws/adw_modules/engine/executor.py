@@ -125,59 +125,132 @@ def _run_step_with_retry(
     return IOFailure(last_failure)
 
 
-def run_workflow(
-    workflow: Workflow,
+def _resolve_input_from(
+    step: Step,
     ctx: WorkflowContext,
+    data_flow_registry: dict[str, dict[str, object]],
 ) -> IOResult[WorkflowContext, PipelineError]:
-    """Execute workflow steps sequentially with always_run.
+    """Resolve input_from mappings and return updated context.
 
-    Normal steps halt on failure. always_run steps execute
-    regardless. Retry logic applies to both via
-    _run_step_with_retry.
+    Returns IOSuccess with updated context on success.
+    Returns IOFailure with PipelineError on missing source
+    or key collision.
     """
-    current_ctx = ctx
-    pipeline_failure: PipelineError | None = None
-    always_run_failures: list[dict[str, object]] = []
+    if step.input_from is None:
+        return IOSuccess(ctx)
 
-    for i, step in enumerate(workflow.steps):
-        if pipeline_failure is not None and not step.always_run:
-            continue
-
-        result = _run_step_with_retry(step, current_ctx)
-
-        if isinstance(result, IOFailure):
-            error = unsafe_perform_io(result.failure())
-            if pipeline_failure is None:
-                pipeline_failure = error
-            else:
-                # Only always_run steps reach here (normal
-                # steps are skipped when pipeline has failed)
-                always_run_failures.append(
-                    error.to_dict(),
-                )
-            continue
-
-        current_ctx = unsafe_perform_io(result.unwrap())
-
-        if i < len(workflow.steps) - 1:
-            try:
-                current_ctx = (
-                    current_ctx.promote_outputs_to_inputs()
-                )
-            except ValueError as exc:
-                collision = PipelineError(
+    resolved_inputs = dict(ctx.inputs)
+    for source_name, target_key in step.input_from.items():
+        if source_name not in data_flow_registry:
+            available = sorted(data_flow_registry.keys())
+            return IOFailure(
+                PipelineError(
                     step_name=step.name,
-                    error_type="ContextCollisionError",
-                    message=str(exc),
+                    error_type="MissingInputFromError",
+                    message=(
+                        f"Step '{step.name}' references"
+                        f" output '{source_name}' via"
+                        f" input_from, but no step has"
+                        f" produced output with that"
+                        f" name. Available: {available}"
+                    ),
                     context={
-                        "step_index": i,
+                        "source_name": source_name,
+                        "available": available,
                         "step_name": step.name,
                     },
-                )
-                if pipeline_failure is None:
-                    pipeline_failure = collision
-                continue
+                ),
+            )
+        if target_key in resolved_inputs:
+            return IOFailure(
+                PipelineError(
+                    step_name=step.name,
+                    error_type="InputFromCollisionError",
+                    message=(
+                        f"Step '{step.name}' input_from"
+                        f" maps '{source_name}' to key"
+                        f" '{target_key}' which already"
+                        f" exists in context inputs"
+                    ),
+                    context={
+                        "source_name": source_name,
+                        "target_key": target_key,
+                        "step_name": step.name,
+                    },
+                ),
+            )
+        resolved_inputs[target_key] = (
+            data_flow_registry[source_name]
+        )
 
+    return IOSuccess(ctx.with_updates(inputs=resolved_inputs))
+
+
+_SKIP_STEP = True
+_RUN_STEP = False
+
+
+def _should_skip_step(
+    step: Step,
+    ctx: WorkflowContext,
+    pipeline_failure: PipelineError | None,
+) -> IOResult[bool, PipelineError]:
+    """Determine whether a step should be skipped.
+
+    Returns IOSuccess(True) to skip, IOSuccess(False) to run.
+    Returns IOFailure if condition predicate raises.
+
+    Skip rules:
+    - Non-always_run steps after pipeline failure: skipped.
+    - Steps whose condition predicate returns False: skipped
+      (including always_run steps in the failure path).
+    """
+    if pipeline_failure is not None and not step.always_run:
+        return IOSuccess(_SKIP_STEP)
+    if step.condition is not None:
+        try:
+            if not step.condition(ctx):
+                return IOSuccess(_SKIP_STEP)
+        except Exception as exc:  # noqa: BLE001
+            return IOFailure(
+                PipelineError(
+                    step_name=step.name,
+                    error_type="ConditionEvaluationError",
+                    message=(
+                        f"Step '{step.name}' condition"
+                        f" predicate raised: {exc}"
+                    ),
+                    context={
+                        "step_name": step.name,
+                        "exception_type": type(exc).__name__,
+                        "exception_message": str(exc),
+                    },
+                ),
+            )
+    return IOSuccess(_RUN_STEP)
+
+
+def _record_failure(
+    error: PipelineError,
+    pipeline_failure: PipelineError | None,
+    always_run_failures: list[dict[str, object]],
+) -> PipelineError:
+    """Record a step or resolution failure.
+
+    Returns the current pipeline failure (original or new).
+    """
+    if pipeline_failure is None:
+        return error
+    always_run_failures.append(error.to_dict())
+    return pipeline_failure
+
+
+def _finalize_workflow(
+    pipeline_failure: PipelineError | None,
+    always_run_failures: list[dict[str, object]],
+    current_ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Build final workflow result, attaching always_run info."""
     if pipeline_failure is not None:
         if always_run_failures:
             pipeline_failure = PipelineError(
@@ -193,3 +266,94 @@ def run_workflow(
             )
         return IOFailure(pipeline_failure)
     return IOSuccess(current_ctx)
+
+
+def run_workflow(
+    workflow: Workflow,
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Execute workflow steps sequentially with data flow.
+
+    Normal steps halt on failure. always_run steps execute
+    regardless. Supports condition predicates, output
+    registration, and input_from data flow resolution.
+    """
+    current_ctx = ctx
+    pipeline_failure: PipelineError | None = None
+    always_run_failures: list[dict[str, object]] = []
+    data_flow_registry: dict[str, dict[str, object]] = {}
+
+    for i, step in enumerate(workflow.steps):
+        skip_result = _should_skip_step(
+            step, current_ctx, pipeline_failure,
+        )
+        if isinstance(skip_result, IOFailure):
+            error = unsafe_perform_io(
+                skip_result.failure(),
+            )
+            pipeline_failure = _record_failure(
+                error, pipeline_failure, always_run_failures,
+            )
+            continue
+        if unsafe_perform_io(skip_result.unwrap()):
+            continue
+
+        # Resolve input_from mappings
+        resolve_result = _resolve_input_from(
+            step, current_ctx, data_flow_registry,
+        )
+        if isinstance(resolve_result, IOFailure):
+            error = unsafe_perform_io(
+                resolve_result.failure(),
+            )
+            pipeline_failure = _record_failure(
+                error, pipeline_failure, always_run_failures,
+            )
+            continue
+        current_ctx = unsafe_perform_io(
+            resolve_result.unwrap(),
+        )
+
+        # Execute step with retry
+        result = _run_step_with_retry(step, current_ctx)
+        if isinstance(result, IOFailure):
+            error = unsafe_perform_io(result.failure())
+            pipeline_failure = _record_failure(
+                error, pipeline_failure, always_run_failures,
+            )
+            continue
+
+        current_ctx = unsafe_perform_io(result.unwrap())
+
+        # Register output in data flow registry
+        if step.output is not None:
+            data_flow_registry[step.output] = dict(
+                current_ctx.outputs,
+            )
+
+        # Promote outputs to inputs for next step
+        if i < len(workflow.steps) - 1:
+            try:
+                current_ctx = (
+                    current_ctx.promote_outputs_to_inputs()
+                )
+            except ValueError as exc:
+                collision = PipelineError(
+                    step_name=step.name,
+                    error_type="ContextCollisionError",
+                    message=str(exc),
+                    context={
+                        "step_index": i,
+                        "step_name": step.name,
+                    },
+                )
+                pipeline_failure = _record_failure(
+                    collision,
+                    pipeline_failure,
+                    always_run_failures,
+                )
+                continue
+
+    return _finalize_workflow(
+        pipeline_failure, always_run_failures, current_ctx,
+    )

@@ -28,6 +28,11 @@ class Step:
     When shell=True, the engine uses execute_shell_step instead of an
     SDK call. The command string is placed into ctx.inputs["shell_command"]
     before step execution. The function field is ignored for shell steps.
+
+    Data flow fields (Story 2.6):
+    - output: Named key for data flow registry
+    - input_from: Map source output names to input keys
+    - condition: Predicate for conditional execution
     """
 
     name: str
@@ -37,6 +42,11 @@ class Step:
     retry_delay_seconds: float = 0.0
     shell: bool = False
     command: str = ""
+    output: str | None = None
+    input_from: dict[str, str] | None = None
+    condition: (
+        Callable[[WorkflowContext], bool] | None
+    ) = None
 
 
 @dataclass(frozen=True)

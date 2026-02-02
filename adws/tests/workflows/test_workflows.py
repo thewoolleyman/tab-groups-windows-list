@@ -45,3 +45,36 @@ def test_implement_close_workflow_structure() -> None:
     assert wf is not None
     assert wf.dispatchable is True
     assert len(wf.steps) >= 1
+
+
+# --- Story 2.6: Dispatchable filter tests ---
+
+
+def test_list_workflows_dispatchable_includes_expected() -> None:
+    """dispatchable_only=True includes dispatchable workflows."""
+    dispatchable = list_workflows(dispatchable_only=True)
+    names = [w.name for w in dispatchable]
+    assert WorkflowName.IMPLEMENT_CLOSE in names
+    assert WorkflowName.IMPLEMENT_VERIFY_CLOSE in names
+    # Non-dispatchable excluded
+    assert WorkflowName.CONVERT_STORIES_TO_BEADS not in names
+
+
+def test_list_workflows_all_includes_non_dispatchable() -> None:
+    """dispatchable_only=False returns all including non-disp."""
+    all_wfs = list_workflows(dispatchable_only=False)
+    names = [w.name for w in all_wfs]
+    assert WorkflowName.IMPLEMENT_CLOSE in names
+    assert WorkflowName.IMPLEMENT_VERIFY_CLOSE in names
+    assert WorkflowName.CONVERT_STORIES_TO_BEADS in names
+
+
+def test_workflows_are_declarative_data() -> None:
+    """Workflow definitions are testable data (NFR13)."""
+    all_wfs = list_workflows()
+    for wf in all_wfs:
+        assert isinstance(wf, Workflow)
+        assert isinstance(wf.name, str)
+        assert isinstance(wf.description, str)
+        assert isinstance(wf.steps, list)
+        assert isinstance(wf.dispatchable, bool)
