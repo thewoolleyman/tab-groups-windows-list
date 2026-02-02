@@ -6,6 +6,7 @@ Steps never import I/O directly; they call io_ops functions.
 from __future__ import annotations
 
 import asyncio
+import shlex
 import subprocess
 import time
 from pathlib import Path as _Path
@@ -509,3 +510,84 @@ def execute_command_workflow(
     )
 
     return run_workflow(workflow, ctx)
+
+
+# --- Beads CLI io_ops (Story 4.4) ---
+
+
+def run_beads_close(
+    issue_id: str,
+    reason: str,
+) -> IOResult[ShellResult, PipelineError]:
+    """Close a Beads issue via bd close (NFR17).
+
+    Delegates to run_shell_command. Nonzero exit is
+    IOFailure with BeadsCloseError.
+    """
+    safe_id = shlex.quote(issue_id)
+    safe_reason = shlex.quote(reason)
+    cmd = f"bd close {safe_id} --reason {safe_reason}"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[ShellResult, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name="io_ops.run_beads_close",
+                    error_type="BeadsCloseError",
+                    message=(
+                        f"bd close failed for"
+                        f" {issue_id}: {sr.stderr}"
+                    ),
+                    context={
+                        "issue_id": issue_id,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr)
+
+    return result.bind(_check_exit)
+
+
+def run_beads_update_notes(
+    issue_id: str,
+    notes: str,
+) -> IOResult[ShellResult, PipelineError]:
+    """Update Beads issue notes via bd update (NFR17).
+
+    Delegates to run_shell_command. Nonzero exit is
+    IOFailure with BeadsUpdateError.
+    """
+    safe_id = shlex.quote(issue_id)
+    safe_notes = shlex.quote(notes)
+    cmd = f"bd update {safe_id} --notes {safe_notes}"
+    result = run_shell_command(cmd)
+
+    def _check_exit(
+        sr: ShellResult,
+    ) -> IOResult[ShellResult, PipelineError]:
+        if sr.return_code != 0:
+            return IOFailure(
+                PipelineError(
+                    step_name=(
+                        "io_ops.run_beads_update_notes"
+                    ),
+                    error_type="BeadsUpdateError",
+                    message=(
+                        f"bd update failed for"
+                        f" {issue_id}: {sr.stderr}"
+                    ),
+                    context={
+                        "issue_id": issue_id,
+                        "exit_code": sr.return_code,
+                        "stderr": sr.stderr,
+                    },
+                ),
+            )
+        return IOSuccess(sr)
+
+    return result.bind(_check_exit)

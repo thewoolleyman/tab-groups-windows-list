@@ -1,8 +1,12 @@
 """Commands package -- dual-layer command pattern (FR28).
 
 Public API for command infrastructure: types, registry,
-dispatch, verify command (FR30), and prime command (FR31).
+dispatch, verify (FR30), prime (FR31), and build (FR32).
 """
+from adws.adw_modules.commands.build import (
+    BuildCommandResult,
+    run_build_command,
+)
 from adws.adw_modules.commands.dispatch import run_command
 from adws.adw_modules.commands.prime import (
     PrimeContextResult,
@@ -20,12 +24,14 @@ from adws.adw_modules.commands.verify import (
 )
 
 __all__ = [
+    "BuildCommandResult",
     "CommandSpec",
     "PrimeContextResult",
     "PrimeFileSpec",
     "VerifyCommandResult",
     "get_command",
     "list_commands",
+    "run_build_command",
     "run_command",
     "run_prime_command",
     "run_verify_command",

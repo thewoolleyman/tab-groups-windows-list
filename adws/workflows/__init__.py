@@ -18,11 +18,25 @@ class WorkflowName:
 
 _IMPLEMENT_CLOSE = Workflow(
     name=WorkflowName.IMPLEMENT_CLOSE,
-    description="Fast-track for trivial changes: implement then close",
+    description=(
+        "Fast-track for trivial changes:"
+        " implement then verify"
+    ),
     dispatchable=True,
     steps=[
-        Step(name="implement", function="execute_sdk_call"),
-        Step(name="close", function="bd_close", always_run=True),
+        Step(
+            name="implement",
+            function="execute_sdk_call",
+        ),
+        Step(  # noqa: S604
+            name="verify_tests_pass",
+            function="execute_shell_step",
+            shell=True,
+            command=(
+                "uv run pytest adws/tests/"
+                " -m 'not enemy'"
+            ),
+        ),
     ],
 )
 

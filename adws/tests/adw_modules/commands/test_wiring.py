@@ -221,3 +221,48 @@ def test_wiring_all_md_files_follow_template() -> None:
         assert "FR28" in content, (
             f"{filename} missing FR28 reference"
         )
+
+
+# --- Build command wiring tests (Story 4.4) ---
+
+
+def test_import_build_command_result_from_package() -> None:
+    """BuildCommandResult importable from commands package."""
+    from adws.adw_modules.commands import (  # noqa: PLC0415
+        BuildCommandResult,
+    )
+
+    assert BuildCommandResult is not None
+
+
+def test_import_run_build_command_from_package() -> None:
+    """run_build_command importable from commands package."""
+    from adws.adw_modules.commands import (  # noqa: PLC0415
+        run_build_command,
+    )
+
+    assert callable(run_build_command)
+
+
+def test_wiring_build_md_references_build_module() -> None:
+    """adws-build.md references the build-specific module."""
+    md_path = (
+        _PROJECT_ROOT / ".claude" / "commands"
+        / "adws-build.md"
+    )
+    assert md_path.exists(), f"Missing: {md_path}"
+    content = md_path.read_text()
+    assert "run_build_command" in content
+    assert "adws.adw_modules.commands.build" in content
+
+
+def test_wiring_build_md_not_stub() -> None:
+    """adws-build.md is no longer marked as stub."""
+    md_path = (
+        _PROJECT_ROOT / ".claude" / "commands"
+        / "adws-build.md"
+    )
+    assert md_path.exists(), f"Missing: {md_path}"
+    content = md_path.read_text()
+    assert "stub" not in content.lower()
+    assert "Story 4.4" not in content

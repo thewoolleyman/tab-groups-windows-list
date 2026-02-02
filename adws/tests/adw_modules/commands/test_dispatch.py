@@ -4,6 +4,7 @@ from __future__ import annotations
 from returns.io import IOFailure, IOSuccess
 from returns.unsafe import unsafe_perform_io
 
+from adws.adw_modules.commands.build import BuildCommandResult
 from adws.adw_modules.commands.dispatch import run_command
 from adws.adw_modules.commands.prime import PrimeContextResult
 from adws.adw_modules.commands.verify import VerifyCommandResult
@@ -46,19 +47,19 @@ def test_dispatch_verify_uses_specialized_handler(  # type: ignore[no-untyped-de
     assert vr.success is True
 
 
-def test_run_command_build_executes_workflow(  # type: ignore[no-untyped-def]
+def test_dispatch_build_uses_specialized_handler(  # type: ignore[no-untyped-def]
     mocker,
 ) -> None:
-    """run_command('build') loads implement_close workflow."""
+    """run_command('build') routes to run_build_command."""
     fake_wf = Workflow(
         name="implement_close",
         description="test",
         steps=[],
     )
     result_ctx = WorkflowContext(
-        outputs={"build_done": True},
+        outputs={"done": True},
     )
-    mock_load = mocker.patch(
+    mocker.patch(
         "adws.adw_modules.io_ops.load_command_workflow",
         return_value=IOSuccess(fake_wf),
     )
@@ -66,10 +67,21 @@ def test_run_command_build_executes_workflow(  # type: ignore[no-untyped-def]
         "adws.adw_modules.io_ops.execute_command_workflow",
         return_value=IOSuccess(result_ctx),
     )
-    ctx = WorkflowContext()
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_close",
+        return_value=IOSuccess(WorkflowContext()),
+    )
+    ctx = WorkflowContext(
+        inputs={"issue_id": "TEST-1"},
+    )
     result = run_command("build", ctx)
     assert isinstance(result, IOSuccess)
-    mock_load.assert_called_once_with("implement_close")
+    out = unsafe_perform_io(result.unwrap())
+    assert isinstance(out, WorkflowContext)
+    br = out.outputs.get("build_result")
+    assert isinstance(br, BuildCommandResult)
+    assert br.success is True
+    assert br.finalize_action == "closed"
 
 
 def test_run_command_unknown_returns_failure() -> None:
@@ -118,9 +130,9 @@ def test_run_command_no_workflow_returns_failure() -> None:
 def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
     mocker,
 ) -> None:
-    """run_command propagates execute failure for non-verify."""
+    """run_command propagates execute failure for generic cmd."""
     fake_wf = Workflow(
-        name="implement_close",
+        name="implement_verify_close",
         description="test",
         steps=[],
     )
@@ -138,7 +150,7 @@ def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
         return_value=IOFailure(exec_err),
     )
     ctx = WorkflowContext()
-    result = run_command("build", ctx)
+    result = run_command("implement", ctx)
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert error is exec_err
@@ -182,33 +194,41 @@ def test_dispatch_verify_tool_failure_wraps_result(  # type: ignore[no-untyped-d
     assert vr.success is False
 
 
-def test_dispatch_build_still_uses_generic_path(  # type: ignore[no-untyped-def]
+def test_dispatch_build_workflow_failure_wraps(  # type: ignore[no-untyped-def]
     mocker,
 ) -> None:
-    """run_command('build') still uses generic workflow path."""
+    """run_command('build') wraps wf failure as success."""
     fake_wf = Workflow(
         name="implement_close",
         description="test",
         steps=[],
     )
-    result_ctx = WorkflowContext(
-        outputs={"build_done": True},
+    exec_err = PipelineError(
+        step_name="implement",
+        error_type="SdkCallError",
+        message="timeout",
     )
-    mock_load = mocker.patch(
+    mocker.patch(
         "adws.adw_modules.io_ops.load_command_workflow",
         return_value=IOSuccess(fake_wf),
     )
     mocker.patch(
         "adws.adw_modules.io_ops.execute_command_workflow",
-        return_value=IOSuccess(result_ctx),
+        return_value=IOFailure(exec_err),
     )
-    ctx = WorkflowContext()
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_beads_update_notes",
+        return_value=IOSuccess(WorkflowContext()),
+    )
+    ctx = WorkflowContext(
+        inputs={"issue_id": "TEST-2"},
+    )
     result = run_command("build", ctx)
     assert isinstance(result, IOSuccess)
     out = unsafe_perform_io(result.unwrap())
-    # Build returns the context directly (generic path)
-    assert out is result_ctx
-    mock_load.assert_called_once_with("implement_close")
+    br = out.outputs.get("build_result")
+    assert isinstance(br, BuildCommandResult)
+    assert br.success is False
 
 
 # --- Prime dispatch tests (Story 4.3) ---
@@ -308,26 +328,28 @@ def test_dispatch_verify_still_works(  # type: ignore[no-untyped-def]
     assert isinstance(vr, VerifyCommandResult)
 
 
-def test_dispatch_build_still_works(  # type: ignore[no-untyped-def]
+def test_dispatch_prime_still_works(  # type: ignore[no-untyped-def]
     mocker,
 ) -> None:
-    """build still uses generic workflow path (regression)."""
-    fake_wf = Workflow(
-        name="implement_close",
-        description="test",
-        steps=[],
-    )
-    result_ctx = WorkflowContext(
-        outputs={"build_done": True},
+    """prime still routes to specialized handler (regression)."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.read_prime_file",
+        side_effect=[
+            IOSuccess("claude content"),
+            IOSuccess("arch content"),
+            IOSuccess("epics content"),
+        ],
     )
     mocker.patch(
-        "adws.adw_modules.io_ops.load_command_workflow",
-        return_value=IOSuccess(fake_wf),
-    )
-    mocker.patch(
-        "adws.adw_modules.io_ops.execute_command_workflow",
-        return_value=IOSuccess(result_ctx),
+        "adws.adw_modules.io_ops.get_directory_tree",
+        side_effect=[
+            IOSuccess("adws tree"),
+            IOSuccess("project tree"),
+        ],
     )
     ctx = WorkflowContext()
-    result = run_command("build", ctx)
+    result = run_command("prime", ctx)
     assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    pr = out.outputs.get("prime_result")
+    assert isinstance(pr, PrimeContextResult)

@@ -44,7 +44,7 @@ def test_implement_close_workflow_structure() -> None:
     wf = load_workflow(WorkflowName.IMPLEMENT_CLOSE)
     assert wf is not None
     assert wf.dispatchable is True
-    assert len(wf.steps) >= 1
+    assert len(wf.steps) == 2
 
 
 # --- Story 2.6: Dispatchable filter tests ---
@@ -211,3 +211,53 @@ def test_verify_workflow_in_all_list() -> None:
     all_wfs = list_workflows()
     names = [w.name for w in all_wfs]
     assert WorkflowName.VERIFY in names
+
+
+# --- Story 4.4: implement_close workflow step composition ---
+
+
+def test_implement_close_step_names() -> None:
+    """implement_close has implement and verify_tests_pass."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_CLOSE)
+    assert wf is not None
+    names = [s.name for s in wf.steps]
+    assert names == ["implement", "verify_tests_pass"]
+
+
+def test_implement_close_no_tdd_steps() -> None:
+    """implement_close has no write_failing_tests or verify_tests_fail."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_CLOSE)
+    assert wf is not None
+    names = [s.name for s in wf.steps]
+    assert "write_failing_tests" not in names
+    assert "verify_tests_fail" not in names
+
+
+def test_implement_close_implement_step() -> None:
+    """implement step uses execute_sdk_call function."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_CLOSE)
+    assert wf is not None
+    impl = wf.steps[0]
+    assert impl.name == "implement"
+    assert impl.function == "execute_sdk_call"
+    assert impl.shell is False
+
+
+def test_implement_close_verify_step() -> None:
+    """verify_tests_pass step is a shell step."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_CLOSE)
+    assert wf is not None
+    verify = wf.steps[1]
+    assert verify.name == "verify_tests_pass"
+    assert verify.shell is True
+    assert "pytest" in verify.command
+    assert "not enemy" in verify.command
+
+
+def test_implement_close_no_finalize_step() -> None:
+    """implement_close has no finalize step (handled by cmd)."""
+    wf = load_workflow(WorkflowName.IMPLEMENT_CLOSE)
+    assert wf is not None
+    names = [s.name for s in wf.steps]
+    assert "close" not in names
+    assert "finalize" not in names

@@ -1244,3 +1244,190 @@ def test_build_tree_lines_iterdir_os_error(
     )
     result = _build_tree_lines(target, 3, 0)
     assert result == []
+
+
+# --- run_beads_close tests (Story 4.4) ---
+
+
+def test_run_beads_close_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_close calls bd close and returns IOSuccess."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_close,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="Issue closed",
+                stderr="",
+                command="bd close ISSUE-1 --reason Done",
+            ),
+        ),
+    )
+    result = run_beads_close("ISSUE-1", "Done")
+    assert isinstance(result, IOSuccess)
+    sr = unsafe_perform_io(result.unwrap())
+    assert isinstance(sr, ShellResult)
+    assert sr.return_code == 0
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd close" in cmd
+    assert "ISSUE-1" in cmd
+    assert "Done" in cmd
+
+
+def test_run_beads_close_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_close returns IOFailure on nonzero exit."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_close,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="not found",
+                command="bd close BAD-1 --reason x",
+            ),
+        ),
+    )
+    result = run_beads_close("BAD-1", "x")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsCloseError"
+    assert "BAD-1" in str(error.context)
+
+
+def test_run_beads_close_shell_safe(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_close uses shlex.quote to prevent injection."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_close,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ok",
+                stderr="",
+                command="bd close x",
+            ),
+        ),
+    )
+    # Dangerous issue_id with shell metacharacters
+    run_beads_close('X"; rm -rf / #', "reason")
+    cmd = mock_shell.call_args[0][0]
+    # shlex.quote wraps in single quotes
+    assert "rm -rf" not in cmd.split("'")[0]
+    assert "'" in cmd
+
+
+def test_run_beads_update_notes_shell_safe(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_update_notes uses shlex.quote for safety."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_update_notes,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="ok",
+                stderr="",
+                command="bd update x",
+            ),
+        ),
+    )
+    # Dangerous notes with shell metacharacters
+    run_beads_update_notes(
+        "ISSUE-1", 'data"; rm -rf / #',
+    )
+    cmd = mock_shell.call_args[0][0]
+    # shlex.quote wraps in single quotes
+    assert "rm -rf" not in cmd.split("'")[0]
+    assert "'" in cmd
+
+
+def test_run_beads_close_shell_error(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_close propagates shell errors as IOFailure."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_close,
+    )
+
+    shell_err = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="bd not found",
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_err),
+    )
+    result = run_beads_close("X-1", "reason")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_err
+
+
+# --- run_beads_update_notes tests (Story 4.4) ---
+
+
+def test_run_beads_update_notes_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_update_notes calls bd update and returns IOSuccess."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_update_notes,
+    )
+
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout="Updated",
+                stderr="",
+                command="bd update ISSUE-2 --notes info",
+            ),
+        ),
+    )
+    result = run_beads_update_notes("ISSUE-2", "info")
+    assert isinstance(result, IOSuccess)
+    sr = unsafe_perform_io(result.unwrap())
+    assert isinstance(sr, ShellResult)
+    assert sr.return_code == 0
+    mock_shell.assert_called_once()
+    cmd = mock_shell.call_args[0][0]
+    assert "bd update" in cmd
+    assert "ISSUE-2" in cmd
+    assert "info" in cmd
+
+
+def test_run_beads_update_notes_failure(mocker) -> None:  # type: ignore[no-untyped-def]
+    """run_beads_update_notes returns IOFailure on nonzero exit."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        run_beads_update_notes,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout="",
+                stderr="error",
+                command="bd update BAD-2 --notes y",
+            ),
+        ),
+    )
+    result = run_beads_update_notes("BAD-2", "y")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "BeadsUpdateError"
+    assert "BAD-2" in str(error.context)

@@ -2,8 +2,8 @@
 
 Routes command names to their associated workflows via the
 command registry. Uses io_ops boundary for workflow loading
-and execution. The "verify" and "prime" commands route to
-specialized handlers (Stories 4.2, 4.3).
+and execution. The "verify", "prime", and "build" commands
+route to specialized handlers (Stories 4.2, 4.3, 4.4).
 """
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ from typing import TYPE_CHECKING
 from returns.io import IOFailure, IOResult, IOSuccess
 
 from adws.adw_modules import io_ops
+from adws.adw_modules.commands.build import (
+    BuildCommandResult,
+    run_build_command,
+)
 from adws.adw_modules.commands.prime import (
     PrimeContextResult,
     run_prime_command,
@@ -37,11 +41,11 @@ def run_command(
 ) -> IOResult[WorkflowContext, PipelineError]:
     """Dispatch a command by name.
 
-    The "verify" and "prime" commands route to specialized
-    handlers. Other workflow-backed commands use the generic
-    workflow path. Non-workflow commands without specialized
-    handlers return IOFailure. Unknown commands return
-    IOFailure with available names.
+    The "verify", "prime", and "build" commands route to
+    specialized handlers. Other workflow-backed commands use
+    the generic workflow path. Non-workflow commands without
+    specialized handlers return IOFailure. Unknown commands
+    return IOFailure with available names.
     """
     spec = get_command(name)
     if spec is None:
@@ -86,6 +90,18 @@ def run_command(
             )
 
         return run_prime_command(ctx).bind(_wrap_pr)
+
+    # Specialized handler for "build" command
+    if spec.name == "build":
+
+        def _wrap_br(
+            br: BuildCommandResult,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            return IOSuccess(
+                ctx.merge_outputs({"build_result": br}),
+            )
+
+        return run_build_command(ctx).bind(_wrap_br)
 
     # Non-workflow commands without specialized handlers
     if spec.workflow_name is None:
