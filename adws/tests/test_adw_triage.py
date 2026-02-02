@@ -174,7 +174,9 @@ def test_poll_failed_issues_finds_failed(mocker) -> None:  # type: ignore[no-unt
     """poll_failed_issues returns candidates with ADWS_FAILED metadata."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\nISSUE-2\nISSUE-3\n"),
+        return_value=IOSuccess(
+            '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
+        ),
     )
     notes_map = {
         "ISSUE-1": (
@@ -199,7 +201,7 @@ def test_poll_failed_issues_empty(mocker) -> None:  # type: ignore[no-untyped-de
     """No ADWS_FAILED issues returns empty list."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -228,7 +230,9 @@ def test_poll_failed_issues_skips_unreadable(mocker) -> None:  # type: ignore[no
     """Issues with read failures are skipped gracefully."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\nISSUE-2\nISSUE-3\n"),
+        return_value=IOSuccess(
+            '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
+        ),
     )
     err = PipelineError(
         step_name="io_ops", error_type="BeadsShowNotesError",
@@ -261,7 +265,7 @@ def test_poll_failed_issues_sorted_oldest_first(mocker) -> None:  # type: ignore
     """Candidates sorted by last_failure ascending."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\nISSUE-2\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}]'),
     )
     notes_map = {
         "ISSUE-1": (
@@ -287,7 +291,7 @@ def test_poll_failed_issues_empty_list(mocker) -> None:  # type: ignore[no-untyp
     """Empty beads list returns empty candidates."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess(""),
+        return_value=IOSuccess("[]"),
     )
     result = poll_failed_issues()
     assert isinstance(result, IOSuccess)
@@ -1182,7 +1186,7 @@ def test_poll_failed_issues_no_bmad_reads(mocker) -> None:  # type: ignore[no-un
     """poll_failed_issues never calls read_bmad_file (NFR19)."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",

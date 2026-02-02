@@ -160,13 +160,13 @@ class TestParseIssueList:
     """Tests for parse_issue_list pure function."""
 
     def test_parses_newline_separated_ids(self) -> None:
-        """Given newline-separated issue IDs, returns list."""
+        """Given JSON issue list, returns list of IDs."""
         from adws.adw_modules.steps.dispatch_guard import (  # noqa: PLC0415
             parse_issue_list,
         )
 
         result = parse_issue_list(
-            "ISSUE-1\nISSUE-2\nISSUE-3\n",
+            '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
         )
         assert result == [
             "ISSUE-1",
@@ -183,12 +183,22 @@ class TestParseIssueList:
         assert parse_issue_list("") == []
 
     def test_whitespace_lines_filtered(self) -> None:
-        """Given whitespace-only lines, they are filtered out."""
+        """Given JSON list with missing IDs, they are filtered out."""
         from adws.adw_modules.steps.dispatch_guard import (  # noqa: PLC0415
             parse_issue_list,
         )
 
         result = parse_issue_list(
-            "ISSUE-1\n  \n\nISSUE-2\n",
+            '[{"id": "ISSUE-1"}, {"no_id": "here"}, {"id": ""}, {"id": "ISSUE-2"}]',
         )
         assert result == ["ISSUE-1", "ISSUE-2"]
+
+    def test_json_object_not_list_returns_empty(
+        self,
+    ) -> None:
+        """Given JSON that decodes to a dict (not list), returns []."""
+        from adws.adw_modules.steps.dispatch_guard import (  # noqa: PLC0415
+            parse_issue_list,
+        )
+
+        assert parse_issue_list('{"not": "a list"}') == []

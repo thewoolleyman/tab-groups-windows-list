@@ -18,6 +18,7 @@ from adws.adw_modules.steps import (
     check_sdk_available,
     convert_stories_orchestrator,
     create_beads_issue,
+    execute_sdk_step,
     execute_shell_step,
     extract_and_validate_tag,
     implement_step,
@@ -55,6 +56,7 @@ _STEP_REGISTRY: dict[str, StepFunction] = {
         convert_stories_orchestrator
     ),
     "create_beads_issue": create_beads_issue,
+    "execute_sdk_step": execute_sdk_step,
     "execute_shell_step": execute_shell_step,
     "extract_and_validate_tag": (
         extract_and_validate_tag

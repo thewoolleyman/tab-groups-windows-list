@@ -30,9 +30,7 @@ class TestCronTriggerSuccessFlow:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\n",
-            ),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}]'),
         )
         # read_issue_description is called during poll
         # (via _is_dispatchable_issue) and during dispatch
@@ -98,7 +96,7 @@ class TestCronTriggerDispatchGuardFlow:
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
             return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\nISSUE-3\n",
+                '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
             ),
         )
         mocker.patch(
@@ -165,7 +163,7 @@ class TestCronTriggerMixedFlow:
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
             return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\nISSUE-3\n",
+                '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
             ),
         )
         # During poll, all 3 issues get read_issue_description
@@ -275,8 +273,8 @@ class TestCronTriggerMultiCycleFlow:
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
             side_effect=[
-                IOSuccess("ISSUE-1\n"),
-                IOSuccess(""),
+                IOSuccess('[{"id": "ISSUE-1"}]'),
+                IOSuccess("[]"),
             ],
         )
         mocker.patch(

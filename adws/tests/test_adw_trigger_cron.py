@@ -27,7 +27,7 @@ class TestPollReadyIssues:
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
             return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\nISSUE-3\n",
+                '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
             ),
         )
         mocker.patch(
@@ -60,7 +60,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess("ISSUE-1\nISSUE-2\n"),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}]'),
         )
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.read_issue_description",
@@ -96,7 +96,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess("ISSUE-1\nISSUE-2\n"),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}]'),
         )
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.read_issue_description",
@@ -155,7 +155,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess(""),
+            return_value=IOSuccess("[]"),
         )
         result = poll_ready_issues()
         assert isinstance(result, IOSuccess)
@@ -174,7 +174,7 @@ class TestPollReadyIssues:
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
             return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\nISSUE-3\n",
+                '[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}, {"id": "ISSUE-3"}]',
             ),
         )
         mocker.patch(
@@ -215,9 +215,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\n",
-            ),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}]'),
         )
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.read_issue_description",
@@ -250,9 +248,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess(
-                "ISSUE-1\nISSUE-2\n",
-            ),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}, {"id": "ISSUE-2"}]'),
         )
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.read_issue_description",
@@ -285,7 +281,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess("ISSUE-1\n"),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
         )
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.read_issue_description",
@@ -322,7 +318,7 @@ class TestPollReadyIssues:
 
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.run_beads_list",
-            return_value=IOSuccess("ISSUE-1\n"),
+            return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
         )
         mocker.patch(
             "adws.adw_trigger_cron.io_ops.read_issue_description",

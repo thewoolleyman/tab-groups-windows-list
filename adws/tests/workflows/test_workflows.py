@@ -244,7 +244,7 @@ def test_implement_close_implement_step() -> None:
     assert wf is not None
     impl = wf.steps[0]
     assert impl.name == "implement"
-    assert impl.function == "execute_sdk_call"
+    assert impl.function == "execute_sdk_step"
     assert impl.shell is False
 
 

@@ -10,6 +10,7 @@ IO-dependent logic in check_dispatch_guard.
 """
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from returns.io import IOResult, IOSuccess
@@ -65,13 +66,21 @@ def check_dispatch_guard(
 
 
 def parse_issue_list(raw_output: str) -> list[str]:
-    """Parse raw bd list stdout into a list of issue IDs.
+    """Parse raw bd list JSON stdout into a list of issue IDs.
 
-    Pure function -- no I/O. Splits on newlines, strips
-    whitespace, filters out empty strings.
+    Pure function -- no I/O. Parses JSON list of issue objects
+    and extracts the 'id' field from each.
     """
+    try:
+        issues = json.loads(raw_output)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(issues, list):
+        return []
+
     return [
-        line.strip()
-        for line in raw_output.splitlines()
-        if line.strip()
+        str(issue.get("id", "")).strip()
+        for issue in issues
+        if isinstance(issue, dict) and issue.get("id")
     ]

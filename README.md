@@ -31,7 +31,7 @@ The pipeline consists of four stages:
 | Stage | Job Name | Description |
 |-------|----------|-------------|
 | **Build** | `build` | Packages the extension and extracts the version from `manifest.json`. |
-| **Test** | `unit-tests`, `e2e-tests` | Runs unit and E2E tests in parallel after the build completes. |
+| **Test** | `unit-tests`, `e2e-tests` | Runs unit and E2E tests in parallel after the build completes. Tests run autonomously without manual intervention. |
 | **Release** | `release` | Automatically creates a GitHub Release with the packaged extension if tests pass. |
 | **Publish** | `publish` | Publishes the extension to the Chrome Web Store after manual approval. |
 

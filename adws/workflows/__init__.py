@@ -27,7 +27,7 @@ _IMPLEMENT_CLOSE = Workflow(
     steps=[
         Step(
             name="implement",
-            function="execute_sdk_call",
+            function="execute_sdk_step",
         ),
         Step(  # noqa: S604
             name="verify_tests_pass",

@@ -24,6 +24,7 @@ from adws.adw_modules.steps.dispatch_guard import (
     has_active_failure_metadata,
     parse_issue_list,
 )
+from adws.adw_modules.steps.execute_sdk_step import execute_sdk_step
 from adws.adw_modules.steps.execute_shell_step import execute_shell_step
 from adws.adw_modules.steps.extract_workflow_tag import (
     extract_and_validate_tag,
@@ -77,6 +78,7 @@ __all__ = [
     "classify_failure_tier",
     "convert_stories_orchestrator",
     "create_beads_issue",
+    "execute_sdk_step",
     "execute_shell_step",
     "extract_and_validate_tag",
     "has_active_failure_metadata",

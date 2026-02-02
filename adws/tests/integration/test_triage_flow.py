@@ -29,7 +29,7 @@ def test_integration_tier1_cooldown_retry(mocker) -> None:  # type: ignore[no-un
     )
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -57,7 +57,7 @@ def test_integration_tier1_cooldown_not_elapsed(mocker) -> None:  # type: ignore
     )
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -85,7 +85,7 @@ def test_integration_tier2_adjustment(mocker) -> None:  # type: ignore[no-untype
     )
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -120,7 +120,7 @@ def test_integration_tier2_split(mocker) -> None:  # type: ignore[no-untyped-def
     )
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -166,7 +166,7 @@ def test_integration_tier3_escalation(mocker) -> None:  # type: ignore[no-untype
     )
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -209,7 +209,9 @@ def test_integration_mixed_cycle(mocker) -> None:  # type: ignore[no-untyped-def
     }
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("I-1\nI-2\nI-3\nI-4\n"),
+        return_value=IOSuccess(
+            '[{"id": "I-1"}, {"id": "I-2"}, {"id": "I-3"}, {"id": "I-4"}]',
+        ),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",
@@ -250,7 +252,7 @@ def test_integration_nfr19_no_bmad_reads(mocker) -> None:  # type: ignore[no-unt
     """Full triage flow never calls read_bmad_file (NFR19)."""
     mocker.patch(
         "adws.adw_triage.io_ops.run_beads_list",
-        return_value=IOSuccess("ISSUE-1\n"),
+        return_value=IOSuccess('[{"id": "ISSUE-1"}]'),
     )
     mocker.patch(
         "adws.adw_triage.io_ops.read_issue_notes",

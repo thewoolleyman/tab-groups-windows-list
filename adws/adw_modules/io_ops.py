@@ -783,7 +783,7 @@ def run_beads_list(
     IOFailure with BeadsListError. Returns stdout on success.
     """
     safe_status = shlex.quote(status)
-    cmd = f"bd list --status={safe_status}"
+    cmd = f"bd list --status={safe_status} --json"
     result = run_shell_command(cmd)
 
     def _check_exit(
