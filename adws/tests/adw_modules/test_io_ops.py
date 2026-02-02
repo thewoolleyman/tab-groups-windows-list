@@ -19,13 +19,23 @@ from returns.unsafe import unsafe_perform_io
 
 from adws.adw_modules.errors import PipelineError
 from adws.adw_modules.io_ops import (
+    _build_verify_result,
     check_sdk_import,
     execute_sdk_call,
     read_file,
+    run_jest_tests,
+    run_mypy_check,
+    run_playwright_tests,
+    run_ruff_check,
     run_shell_command,
     sleep_seconds,
 )
-from adws.adw_modules.types import AdwsRequest, AdwsResponse, ShellResult
+from adws.adw_modules.types import (
+    AdwsRequest,
+    AdwsResponse,
+    ShellResult,
+    VerifyResult,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -470,3 +480,438 @@ def test_sleep_seconds_os_error(mocker) -> None:  # type: ignore[no-untyped-def]
     assert error.error_type == "OSError"
     assert "interrupted" in error.message
     assert error.context["seconds"] == 1.0
+
+
+# --- _build_verify_result helper tests ---
+
+
+def test_build_verify_result_success_path() -> None:
+    """Test helper builds passing VerifyResult for exit code 0."""
+    sr = ShellResult(
+        return_code=0,
+        stdout="all good\n",
+        stderr="",
+        command="test-tool",
+    )
+    vr = _build_verify_result(
+        sr, "test-tool", lambda line: "ERROR" in line,
+    )
+    assert vr.tool_name == "test-tool"
+    assert vr.passed is True
+    assert vr.errors == []
+    assert vr.raw_output == "all good\n"
+
+
+def test_build_verify_result_failure_path() -> None:
+    """Test helper builds failing VerifyResult with parsed errors."""
+    sr = ShellResult(
+        return_code=1,
+        stdout="ok line\nERROR: bad thing\nERROR: worse\n",
+        stderr="",
+        command="test-tool",
+    )
+
+    def _filter(line: str) -> bool:
+        return "ERROR" in line
+
+    vr = _build_verify_result(sr, "test-tool", _filter)
+    assert vr.tool_name == "test-tool"
+    assert vr.passed is False
+    assert len(vr.errors) == 2
+    assert "ERROR: bad thing" in vr.errors[0]
+    assert "ERROR: worse" in vr.errors[1]
+
+
+def test_build_verify_result_combines_stdout_stderr() -> None:
+    """Test helper combines stdout and stderr in raw_output."""
+    sr = ShellResult(
+        return_code=1,
+        stdout="out\n",
+        stderr="err\n",
+        command="tool",
+    )
+
+    def _filter(line: str) -> bool:
+        return "err" in line
+
+    vr = _build_verify_result(sr, "tool", _filter)
+    assert vr.raw_output == "out\nerr\n"
+    assert len(vr.errors) == 1
+
+
+# --- run_jest_tests tests ---
+
+JEST_SUCCESS_OUTPUT = (
+    "Test Suites: 5 passed, 5 total\n"
+    "Tests:       23 passed, 23 total\n"
+)
+
+JEST_FAILURE_OUTPUT = (
+    "FAIL src/tests/popup.test.ts\n"
+    "  Tab Groups\n"
+    "    > should handle empty groups\n"
+    "      expect(received).toBe(expected)\n"
+    "Test Suites: 1 failed, 4 passed, 5 total\n"
+    "Tests:       1 failed, 22 passed, 23 total\n"
+)
+
+
+def test_run_jest_tests_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: run_jest_tests does not exist yet."""
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout=JEST_SUCCESS_OUTPUT,
+                stderr="",
+                command="npm test",
+            ),
+        ),
+    )
+    result = run_jest_tests()
+    mock_shell.assert_called_once_with("npm test")
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "jest"
+    assert vr.passed is True
+    assert vr.errors == []
+    assert JEST_SUCCESS_OUTPUT in vr.raw_output
+
+
+def test_run_jest_tests_failure_with_errors(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_jest_tests failure path does not exist yet."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout=JEST_FAILURE_OUTPUT,
+                stderr="",
+                command="npm test",
+            ),
+        ),
+    )
+    result = run_jest_tests()
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "jest"
+    assert vr.passed is False
+    assert len(vr.errors) > 0
+    assert any("FAIL" in e for e in vr.errors)
+    assert JEST_FAILURE_OUTPUT in vr.raw_output
+
+
+def test_run_jest_tests_shell_failure_propagates(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_jest_tests IOFailure propagation does not exist."""
+    shell_error = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="TimeoutError",
+        message="Command timed out",
+        context={"command": "npm test"},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_error),
+    )
+    result = run_jest_tests()
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_error
+
+
+# --- run_playwright_tests tests ---
+
+PLAYWRIGHT_SUCCESS_OUTPUT = (
+    "  6 passed (3.2s)\n"
+)
+
+PLAYWRIGHT_FAILURE_OUTPUT = (
+    "  1) chromium > example.spec.ts:5:1\n"
+    "     > should display title\n"
+    "     Error: expect(received).toBe(expected)\n"
+    "  1 failed\n"
+    "  5 passed (3.2s)\n"
+)
+
+
+def test_run_playwright_tests_success(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_playwright_tests does not exist yet."""
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout=PLAYWRIGHT_SUCCESS_OUTPUT,
+                stderr="",
+                command="npm run test:e2e",
+            ),
+        ),
+    )
+    result = run_playwright_tests()
+    mock_shell.assert_called_once_with("npm run test:e2e")
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "playwright"
+    assert vr.passed is True
+    assert vr.errors == []
+    assert PLAYWRIGHT_SUCCESS_OUTPUT in vr.raw_output
+
+
+def test_run_playwright_tests_failure_with_errors(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_playwright_tests failure path does not exist."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout=PLAYWRIGHT_FAILURE_OUTPUT,
+                stderr="",
+                command="npm run test:e2e",
+            ),
+        ),
+    )
+    result = run_playwright_tests()
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "playwright"
+    assert vr.passed is False
+    assert len(vr.errors) > 0
+    assert any("Error:" in e for e in vr.errors)
+    assert any("failed" in e for e in vr.errors)
+    assert PLAYWRIGHT_FAILURE_OUTPUT in vr.raw_output
+
+
+def test_run_playwright_tests_shell_failure_propagates(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_playwright_tests IOFailure propagation."""
+    shell_error = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="FileNotFoundError",
+        message="Command not found",
+        context={"command": "npm run test:e2e"},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_error),
+    )
+    result = run_playwright_tests()
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_error
+
+
+# --- run_mypy_check tests ---
+
+MYPY_SUCCESS_OUTPUT = (
+    "Success: no issues found in 31 source files\n"
+)
+
+MYPY_FAILURE_OUTPUT = (
+    "adws/adw_modules/types.py:5: error:"
+    " Missing return statement  [return]\n"
+    "adws/adw_modules/io_ops.py:42: error:"
+    " Incompatible types  [arg-type]\n"
+    "Found 2 errors in 2 files"
+    " (checked 31 source files)\n"
+)
+
+
+def test_run_mypy_check_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: run_mypy_check does not exist yet."""
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout=MYPY_SUCCESS_OUTPUT,
+                stderr="",
+                command="uv run mypy adws/",
+            ),
+        ),
+    )
+    result = run_mypy_check()
+    mock_shell.assert_called_once_with("uv run mypy adws/")
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "mypy"
+    assert vr.passed is True
+    assert vr.errors == []
+    assert MYPY_SUCCESS_OUTPUT in vr.raw_output
+
+
+def test_run_mypy_check_failure_with_errors(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_mypy_check failure parsing does not exist."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout=MYPY_FAILURE_OUTPUT,
+                stderr="",
+                command="uv run mypy adws/",
+            ),
+        ),
+    )
+    result = run_mypy_check()
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "mypy"
+    assert vr.passed is False
+    assert len(vr.errors) == 2
+    assert any("Missing return" in e for e in vr.errors)
+    assert any("Incompatible types" in e for e in vr.errors)
+    assert MYPY_FAILURE_OUTPUT in vr.raw_output
+
+
+def test_run_mypy_check_shell_failure_propagates(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_mypy_check IOFailure propagation."""
+    shell_error = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="TimeoutError",
+        message="Command timed out",
+        context={"command": "uv run mypy adws/"},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_error),
+    )
+    result = run_mypy_check()
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_error
+
+
+# --- run_ruff_check tests ---
+
+RUFF_SUCCESS_OUTPUT = "All checks passed!\n"
+
+RUFF_FAILURE_OUTPUT = (
+    "adws/adw_modules/types.py:10:1:"
+    " E501 Line too long (120 > 88)\n"
+    "adws/adw_modules/io_ops.py:5:1:"
+    " F401 `os` imported but unused\n"
+    "Found 2 errors.\n"
+)
+
+
+def test_run_ruff_check_success(mocker) -> None:  # type: ignore[no-untyped-def]
+    """RED: run_ruff_check does not exist yet."""
+    mock_shell = mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=0,
+                stdout=RUFF_SUCCESS_OUTPUT,
+                stderr="",
+                command="uv run ruff check adws/",
+            ),
+        ),
+    )
+    result = run_ruff_check()
+    mock_shell.assert_called_once_with("uv run ruff check adws/")
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "ruff"
+    assert vr.passed is True
+    assert vr.errors == []
+    assert RUFF_SUCCESS_OUTPUT in vr.raw_output
+
+
+def test_run_ruff_check_failure_with_errors(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_ruff_check failure parsing does not exist."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout=RUFF_FAILURE_OUTPUT,
+                stderr="",
+                command="uv run ruff check adws/",
+            ),
+        ),
+    )
+    result = run_ruff_check()
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert isinstance(vr, VerifyResult)
+    assert vr.tool_name == "ruff"
+    assert vr.passed is False
+    assert len(vr.errors) == 2
+    assert any("E501" in e for e in vr.errors)
+    assert any("F401" in e for e in vr.errors)
+    assert RUFF_FAILURE_OUTPUT in vr.raw_output
+
+
+def test_run_ruff_check_shell_failure_propagates(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """RED: run_ruff_check IOFailure propagation."""
+    shell_error = PipelineError(
+        step_name="io_ops.run_shell_command",
+        error_type="OSError",
+        message="OS error running command",
+        context={"command": "uv run ruff check adws/"},
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOFailure(shell_error),
+    )
+    result = run_ruff_check()
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error is shell_error
+
+
+RUFF_FAILURE_WITH_NOISE = (
+    "warning: unexpected config\n"
+    "adws/adw_modules/types.py:10:1:"
+    " E501 Line too long (120 > 88)\n"
+    "Found 1 error.\n"
+)
+
+
+def test_run_ruff_check_filters_noise_lines(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """Verify ruff filter only captures file:line:col violation lines."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.run_shell_command",
+        return_value=IOSuccess(
+            ShellResult(
+                return_code=1,
+                stdout=RUFF_FAILURE_WITH_NOISE,
+                stderr="",
+                command="uv run ruff check adws/",
+            ),
+        ),
+    )
+    result = run_ruff_check()
+    assert isinstance(result, IOSuccess)
+    vr = unsafe_perform_io(result.unwrap())
+    assert vr.passed is False
+    assert len(vr.errors) == 1
+    assert "E501" in vr.errors[0]
+    assert "warning" not in vr.errors[0]

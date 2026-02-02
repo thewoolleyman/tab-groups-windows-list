@@ -8,6 +8,7 @@ from adws.adw_modules.types import (
     AdwsRequest,
     AdwsResponse,
     ShellResult,
+    VerifyResult,
     WorkflowContext,
 )
 
@@ -298,3 +299,47 @@ def test_shell_result_frozen() -> None:
     assert type(sr).__dataclass_params__.frozen  # type: ignore[attr-defined]
     with pytest.raises(dataclasses.FrozenInstanceError):
         sr.return_code = 1  # type: ignore[misc]
+
+
+# --- VerifyResult Tests ---
+
+
+def test_verify_result_construction_all_fields() -> None:
+    """RED: VerifyResult does not exist yet."""
+    vr = VerifyResult(
+        tool_name="jest",
+        passed=True,
+        errors=["error1", "error2"],
+        raw_output="some output",
+    )
+    assert vr.tool_name == "jest"
+    assert vr.passed is True
+    assert vr.errors == ["error1", "error2"]
+    assert vr.raw_output == "some output"
+
+
+def test_verify_result_defaults() -> None:
+    """RED: VerifyResult does not exist yet."""
+    vr = VerifyResult(tool_name="mypy", passed=False)
+    assert vr.tool_name == "mypy"
+    assert vr.passed is False
+    assert vr.errors == []
+    assert vr.raw_output == ""
+
+
+def test_verify_result_is_frozen() -> None:
+    """RED: VerifyResult does not exist yet."""
+    vr = VerifyResult(tool_name="ruff", passed=True)
+    assert dataclasses.is_dataclass(vr)
+    assert type(vr).__dataclass_params__.frozen  # type: ignore[attr-defined]
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        vr.passed = False  # type: ignore[misc]
+
+
+def test_verify_result_errors_default_factory() -> None:
+    """RED: Verify each instance gets its own errors list."""
+    vr1 = VerifyResult(tool_name="jest", passed=True)
+    vr2 = VerifyResult(tool_name="jest", passed=True)
+    assert vr1.errors is not vr2.errors
+    assert vr1.errors == []
+    assert vr2.errors == []

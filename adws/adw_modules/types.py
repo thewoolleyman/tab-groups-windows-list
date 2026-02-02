@@ -12,6 +12,16 @@ PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions"]
 
 
 @dataclass(frozen=True)
+class VerifyResult:
+    """Structured result from a quality gate tool execution."""
+
+    tool_name: str
+    passed: bool
+    errors: list[str] = field(default_factory=list)
+    raw_output: str = ""
+
+
+@dataclass(frozen=True)
 class ShellResult:
     """Result of a shell command execution."""
 

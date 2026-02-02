@@ -19,9 +19,15 @@ from claude_agent_sdk import (
 from returns.io import IOFailure, IOResult, IOSuccess
 
 from adws.adw_modules.errors import PipelineError
-from adws.adw_modules.types import AdwsRequest, AdwsResponse, ShellResult
+from adws.adw_modules.types import (
+    AdwsRequest,
+    AdwsResponse,
+    ShellResult,
+    VerifyResult,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -217,3 +223,113 @@ def sleep_seconds(
         )
     else:
         return IOSuccess(None)
+
+
+# --- Verify pipeline io_ops (Story 3.1) ---
+
+
+def _build_verify_result(
+    shell_result: ShellResult,
+    tool_name: str,
+    error_filter: Callable[[str], bool],
+) -> VerifyResult:
+    """Build a VerifyResult from a ShellResult.
+
+    Shared helper for verify io_ops functions. Combines stdout
+    and stderr, determines pass/fail from return code, and
+    filters error lines using the tool-specific predicate.
+    """
+    raw = shell_result.stdout + shell_result.stderr
+    passed = shell_result.return_code == 0
+    errors: list[str] = []
+    if not passed:
+        errors = [
+            line for line in raw.splitlines()
+            if error_filter(line)
+        ]
+    return VerifyResult(
+        tool_name=tool_name,
+        passed=passed,
+        errors=errors,
+        raw_output=raw,
+    )
+
+
+def run_jest_tests() -> IOResult[VerifyResult, PipelineError]:
+    """Execute npm test (Jest) and return structured result (FR13)."""
+    result = run_shell_command("npm test")
+
+    def _handle_result(
+        shell_result: ShellResult,
+    ) -> IOResult[VerifyResult, PipelineError]:
+        return IOSuccess(
+            _build_verify_result(
+                shell_result,
+                "jest",
+                lambda line: line.startswith("FAIL "),
+            ),
+        )
+
+    return result.bind(_handle_result)
+
+
+def run_playwright_tests() -> IOResult[VerifyResult, PipelineError]:
+    """Execute npm run test:e2e (Playwright) and return result (FR14)."""
+    result = run_shell_command("npm run test:e2e")
+
+    def _handle_result(
+        shell_result: ShellResult,
+    ) -> IOResult[VerifyResult, PipelineError]:
+        def _pw_filter(line: str) -> bool:
+            stripped = line.strip()
+            return "failed" in stripped or "Error:" in stripped
+
+        return IOSuccess(
+            _build_verify_result(
+                shell_result, "playwright", _pw_filter,
+            ),
+        )
+
+    return result.bind(_handle_result)
+
+
+def run_mypy_check() -> IOResult[VerifyResult, PipelineError]:
+    """Execute uv run mypy adws/ and return result (FR15)."""
+    result = run_shell_command("uv run mypy adws/")
+
+    def _handle_result(
+        shell_result: ShellResult,
+    ) -> IOResult[VerifyResult, PipelineError]:
+        return IOSuccess(
+            _build_verify_result(
+                shell_result,
+                "mypy",
+                lambda line: ": error:" in line,
+            ),
+        )
+
+    return result.bind(_handle_result)
+
+
+def run_ruff_check() -> IOResult[VerifyResult, PipelineError]:
+    """Execute uv run ruff check adws/ and return result (FR15)."""
+    result = run_shell_command("uv run ruff check adws/")
+
+    def _handle_result(
+        shell_result: ShellResult,
+    ) -> IOResult[VerifyResult, PipelineError]:
+        def _ruff_filter(line: str) -> bool:
+            parts = line.split(":")
+            return (
+                len(parts) >= 4  # noqa: PLR2004
+                and parts[1].strip().isdigit()
+                and parts[2].strip().isdigit()
+            )
+
+        return IOSuccess(
+            _build_verify_result(
+                shell_result, "ruff", _ruff_filter,
+            ),
+        )
+
+    return result.bind(_handle_result)
