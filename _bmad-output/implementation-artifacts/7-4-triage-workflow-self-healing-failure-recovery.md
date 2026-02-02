@@ -1,6 +1,39 @@
 # Story 7.4: Triage Workflow - Self-Healing Failure Recovery
 
-Status: ready-for-dev
+Status: code-review-complete
+
+## Code Review (Story 7.4)
+
+**Reviewer**: Adversarial Senior Code Reviewer
+**Date**: 2026-02-02
+
+### Issues Found: 4
+
+**ISSUE 1 (MEDIUM) -- FIXED: `format_triage_summary` double-reports error counts**
+- File: `adws/adw_triage.py`, `format_triage_summary()`
+- The summary always included `"{result.triage_errors} errors"` in the parts list, THEN conditionally appended `"{len(result.errors)} error(s)"` when the errors list was non-empty. This produced confusing output like `"1 errors, 1 error"` when both fields were populated. The `triage_errors` field tracks action-level errors (unknown/failed actions from `_count_action`) while `errors` is the list of error messages from IOFailure propagation -- they measure different things but were both labeled "errors".
+- Fix: Combined into a single `total_errors = result.triage_errors + len(result.errors)` with one display line. Added test `test_format_triage_summary_combined_errors`.
+
+**ISSUE 2 (MEDIUM) -- FIXED: `FailureMetadata` not exported from `steps/__init__.py`**
+- File: `adws/adw_modules/steps/__init__.py`
+- The three pure functions (`parse_failure_metadata`, `classify_failure_tier`, `check_cooldown_elapsed`) were all re-exported from the steps package, but the `FailureMetadata` dataclass they operate on was not. This breaks public API consistency -- downstream consumers of `adws.adw_modules.steps` can import the functions but not the type they return/accept.
+- Fix: Added `FailureMetadata` to the import and `__all__` in `steps/__init__.py`.
+
+**ISSUE 3 (MEDIUM) -- FIXED: Tier 2 `clear_failed` and `split_failed` not escalated to Tier 3**
+- File: `adws/adw_triage.py`, `_TIER2_ESCALATION_ACTIONS` frozenset
+- When a Tier 2 AI triage recommended `adjust_parameters` but `clear_failure_metadata` failed, or recommended `split` but `run_beads_create` failed, the result (`clear_failed` or `split_failed`) was NOT in `_TIER2_ESCALATION_ACTIONS`. This meant `triage_issue` returned the failed result without escalating to Tier 3. On the next triage cycle, the issue would still have ADWS_FAILED metadata, classify as Tier 2 again, make another expensive SDK call that would likely fail the same way -- creating a soft infinite retry loop at Tier 2 with repeated SDK costs.
+- Fix: Added `"clear_failed"` and `"split_failed"` to `_TIER2_ESCALATION_ACTIONS`. Added tests `test_triage_issue_tier2_clear_failed_falls_to_tier3` and `test_triage_issue_tier2_split_failed_falls_to_tier3`.
+
+**ISSUE 4 (LOW) -- FIXED: `_RETRYABLE_ERROR_CLASSES` is dead code**
+- File: `adws/adw_modules/steps/triage.py`, line 32
+- The `_RETRYABLE_ERROR_CLASSES` frozenset was defined with `{"SdkCallError", "TimeoutError", "TestFailureError"}` but never referenced anywhere in the codebase. The `classify_failure_tier` function uses a simpler `metadata.error_class == "unknown"` check instead. This dead constant is misleading -- it suggests the classification logic uses an explicit allowlist when it actually uses a denylist (`unknown` only).
+- Fix: Removed the unused constant.
+
+### Quality Gates (post-fix)
+
+- **Tests**: 1271 passed, 5 skipped (enemy), 100% line + branch coverage
+- **mypy**: Success, no issues found in 130 source files (strict mode)
+- **ruff**: All checks passed (zero violations)
 
 ## Story
 

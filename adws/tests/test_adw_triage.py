@@ -747,6 +747,76 @@ def test_triage_issue_tier2_parse_fail_falls_to_tier3(mocker) -> None:  # type: 
     assert tr.action == "escalated_to_human"
 
 
+def test_triage_issue_tier2_clear_failed_falls_to_tier3(mocker) -> None:  # type: ignore[no-untyped-def]
+    """Tier 2 adjust with clear failure escalates to Tier 3."""
+    mocker.patch(
+        "adws.adw_triage.io_ops.execute_sdk_call",
+        return_value=IOSuccess(
+            AdwsResponse(
+                result="ACTION: adjust_parameters|DETAIL: Fix it",
+                is_error=False,
+            ),
+        ),
+    )
+    err = PipelineError(
+        step_name="io_ops", error_type="BeadsClearMetadataError",
+        message="clear failed",
+    )
+    mocker.patch(
+        "adws.adw_triage.io_ops.clear_failure_metadata",
+        return_value=IOFailure(err),
+    )
+    mocker.patch(
+        "adws.adw_triage.io_ops.tag_needs_human",
+        return_value=IOSuccess(_shell_ok()),
+    )
+    candidate = _make_candidate(
+        issue_id="ISSUE-1", attempt=3,
+        error_class="SdkCallError",
+    )
+    now = datetime(2026, 2, 1, 21, 0, 0, tzinfo=UTC)
+    result = triage_issue(candidate, now)
+    assert isinstance(result, IOSuccess)
+    tr = unsafe_perform_io(result.unwrap())
+    assert tr.action == "escalated_to_human"
+    assert tr.tier == 3
+
+
+def test_triage_issue_tier2_split_failed_falls_to_tier3(mocker) -> None:  # type: ignore[no-untyped-def]
+    """Tier 2 split failure escalates to Tier 3."""
+    mocker.patch(
+        "adws.adw_triage.io_ops.execute_sdk_call",
+        return_value=IOSuccess(
+            AdwsResponse(
+                result="ACTION: split|DETAIL: Split it",
+                is_error=False,
+            ),
+        ),
+    )
+    err = PipelineError(
+        step_name="io_ops", error_type="BeadsCreateError",
+        message="create failed",
+    )
+    mocker.patch(
+        "adws.adw_triage.io_ops.run_beads_create",
+        return_value=IOFailure(err),
+    )
+    mocker.patch(
+        "adws.adw_triage.io_ops.tag_needs_human",
+        return_value=IOSuccess(_shell_ok()),
+    )
+    candidate = _make_candidate(
+        issue_id="ISSUE-1", attempt=3,
+        error_class="SdkCallError",
+    )
+    now = datetime(2026, 2, 1, 21, 0, 0, tzinfo=UTC)
+    result = triage_issue(candidate, now)
+    assert isinstance(result, IOSuccess)
+    tr = unsafe_perform_io(result.unwrap())
+    assert tr.action == "escalated_to_human"
+    assert tr.tier == 3
+
+
 # --- run_triage_cycle tests ---
 
 
@@ -1000,6 +1070,19 @@ def test_format_triage_summary_plural_errors() -> None:
         tier2_split=0, tier3_escalated=0,
         triage_errors=0,
         errors=["err1", "err2"],
+    )
+    summary = format_triage_summary(result)
+    assert "2 errors" in summary
+
+
+def test_format_triage_summary_combined_errors() -> None:
+    """format_triage_summary combines triage_errors and errors list."""
+    result = TriageCycleResult(
+        issues_found=2, tier1_cleared=0,
+        tier1_pending=0, tier2_adjusted=0,
+        tier2_split=0, tier3_escalated=0,
+        triage_errors=1,
+        errors=["poll failed"],
     )
     summary = format_triage_summary(result)
     assert "2 errors" in summary

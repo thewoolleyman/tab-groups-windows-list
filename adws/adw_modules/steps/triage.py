@@ -28,14 +28,6 @@ COOLDOWN_SCHEDULE: dict[int, timedelta] = {
 }
 DEFAULT_COOLDOWN: timedelta = timedelta(hours=8)
 
-# Error classes considered retryable at low attempt counts.
-_RETRYABLE_ERROR_CLASSES: frozenset[str] = frozenset({
-    "SdkCallError",
-    "TimeoutError",
-    "TestFailureError",
-})
-
-
 def _parse_kv_parts(
     parts: list[str],
     placeholder: str,

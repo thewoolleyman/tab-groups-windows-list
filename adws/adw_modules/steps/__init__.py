@@ -49,6 +49,7 @@ from adws.adw_modules.steps.track_file_operation import (
     track_file_operation_safe,
 )
 from adws.adw_modules.steps.triage import (
+    FailureMetadata,
     check_cooldown_elapsed,
     classify_failure_tier,
     parse_failure_metadata,
@@ -64,6 +65,7 @@ from adws.adw_modules.steps.write_failing_tests import (
 )
 
 __all__ = [
+    "FailureMetadata",
     "accumulate_verify_feedback",
     "add_verify_feedback_to_context",
     "block_dangerous_command",

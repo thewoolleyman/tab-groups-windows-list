@@ -407,10 +407,14 @@ def handle_tier3(
 # --- Orchestrator ---
 
 # Actions that indicate Tier 2 should fall through to Tier 3.
+# Includes partial failures (clear_failed, split_failed) to prevent
+# expensive repeated SDK calls on issues stuck in Tier 2.
 _TIER2_ESCALATION_ACTIONS: frozenset[str] = frozenset({
     "escalated_to_tier3",
     "triage_sdk_failed",
     "triage_parse_failed",
+    "clear_failed",
+    "split_failed",
 })
 
 
@@ -544,6 +548,7 @@ def format_triage_summary(
 
     Pure function -- no I/O. Includes all tracked metrics.
     """
+    total_errors = result.triage_errors + len(result.errors)
     parts = [
         f"{result.issues_found} found",
         f"{result.tier1_cleared} cleared",
@@ -551,13 +556,9 @@ def format_triage_summary(
         f"{result.tier2_adjusted} adjusted",
         f"{result.tier2_split} split",
         f"{result.tier3_escalated} escalated",
-        f"{result.triage_errors} errors",
+        f"{total_errors} error"
+        f"{'s' if total_errors != 1 else ''}",
     ]
-    if result.errors:
-        parts.append(
-            f"{len(result.errors)} error"
-            f"{'s' if len(result.errors) != 1 else ''}"
-        )
     return "Triage cycle: " + ", ".join(parts)
 
 
