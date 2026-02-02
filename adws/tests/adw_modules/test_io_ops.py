@@ -2291,3 +2291,89 @@ def test_write_security_log_path_traversal_blocked(
     assert (log_dir / "passwd.jsonl").exists()
     # Verify no file was written outside security_logs
     assert not (tmp_path / "etc").exists()
+
+
+# --- read_bmad_file tests (Story 6.1) ---
+
+
+def test_read_bmad_file_success(
+    tmp_path: Path,
+) -> None:
+    """read_bmad_file returns IOSuccess with file content."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_bmad_file,
+    )
+
+    test_file = tmp_path / "epics.md"
+    test_file.write_text("# Epic content")
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_bmad_file("epics.md")
+    assert isinstance(result, IOSuccess)
+    content = unsafe_perform_io(result.unwrap())
+    assert content == "# Epic content"
+
+
+def test_read_bmad_file_not_found(
+    tmp_path: Path,
+) -> None:
+    """read_bmad_file returns IOFailure for missing file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_bmad_file,
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_bmad_file("nonexistent.md")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "FileNotFoundError"
+
+
+def test_read_bmad_file_permission_error(
+    tmp_path: Path,
+) -> None:
+    """read_bmad_file returns IOFailure on permission error."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_bmad_file,
+    )
+
+    test_file = tmp_path / "noperm.md"
+    test_file.write_text("secret")
+    test_file.chmod(0o000)
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_bmad_file("noperm.md")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "PermissionError"
+    test_file.chmod(0o644)
+
+
+def test_read_bmad_file_empty_path() -> None:
+    """read_bmad_file returns IOFailure for empty string path."""
+    from adws.adw_modules.io_ops import (  # noqa: PLC0415
+        read_bmad_file,
+    )
+
+    result = read_bmad_file("")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.step_name == "io_ops.read_bmad_file"
+    assert error.error_type == "ValueError"
+    assert "empty" in error.message.lower()

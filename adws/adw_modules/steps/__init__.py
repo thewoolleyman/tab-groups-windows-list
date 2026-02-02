@@ -19,6 +19,9 @@ from adws.adw_modules.steps.log_hook_event import (
     log_hook_event,
     log_hook_event_safe,
 )
+from adws.adw_modules.steps.parse_bmad_story import (
+    parse_bmad_story,
+)
 from adws.adw_modules.steps.refactor_step import refactor_step
 from adws.adw_modules.steps.run_jest_step import run_jest_step
 from adws.adw_modules.steps.run_mypy_step import run_mypy_step
@@ -46,6 +49,7 @@ __all__ = [
     "implement_step",
     "log_hook_event",
     "log_hook_event_safe",
+    "parse_bmad_story",
     "refactor_step",
     "run_jest_step",
     "run_mypy_step",

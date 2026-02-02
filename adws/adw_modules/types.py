@@ -150,6 +150,33 @@ class SecurityLogEntry:
         return json.dumps(asdict(self), separators=(",", ":"))
 
 
+@dataclass(frozen=True)
+class BmadStory:
+    """Parsed BMAD story content (FR24)."""
+
+    epic_number: int
+    story_number: int
+    title: str
+    slug: str
+    user_story: str
+    acceptance_criteria: str
+    frs_covered: list[str] = field(default_factory=list)
+    raw_content: str = ""
+
+
+@dataclass(frozen=True)
+class BmadEpic:
+    """Parsed BMAD epic with contained stories."""
+
+    epic_number: int
+    title: str
+    description: str
+    frs_covered: list[str] = field(default_factory=list)
+    stories: list[BmadStory] = field(
+        default_factory=list,
+    )
+
+
 class AdwsRequest(BaseModel):
     """Request payload for SDK boundary calls."""
 

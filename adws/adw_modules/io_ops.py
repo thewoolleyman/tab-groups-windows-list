@@ -382,6 +382,29 @@ def read_prime_file(
     return read_file(absolute)
 
 
+def read_bmad_file(
+    path: str,
+) -> IOResult[str, PipelineError]:
+    """Read a BMAD markdown file by relative path from project root.
+
+    Resolves the path relative to the project root and
+    delegates to read_file(). Returns IOResult, never raises.
+    Validates that the path is non-empty before attempting read.
+    """
+    if not path:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.read_bmad_file",
+                error_type="ValueError",
+                message="Empty path provided to read_bmad_file",
+                context={"path": path},
+            ),
+        )
+    root = _find_project_root()
+    absolute = root / path
+    return read_file(absolute)
+
+
 def get_directory_tree(
     root: str,
     *,
