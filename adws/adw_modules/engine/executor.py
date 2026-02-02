@@ -15,6 +15,8 @@ from adws.adw_modules.io_ops import sleep_seconds
 from adws.adw_modules.steps import (
     check_sdk_available,
     execute_shell_step,
+    implement_step,
+    refactor_step,
     run_jest_step,
     run_mypy_step,
     run_playwright_step,
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
 _STEP_REGISTRY: dict[str, StepFunction] = {
     "check_sdk_available": check_sdk_available,
     "execute_shell_step": execute_shell_step,
+    "implement_step": implement_step,
+    "refactor_step": refactor_step,
     "run_jest_step": run_jest_step,
     "run_playwright_step": run_playwright_step,
     "run_mypy_step": run_mypy_step,
