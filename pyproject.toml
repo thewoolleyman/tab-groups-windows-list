@@ -38,6 +38,9 @@ ignore = ["D", "COM812", "ISC001"]
 [tool.ruff.lint.per-file-ignores]
 "adws/tests/**/*.py" = ["S101", "PLR2004", "ANN"]
 
+[tool.coverage.run]
+omit = ["adws/tests/conftest.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["adws/tests"]
 addopts = "--cov=adws --cov-report=term-missing --cov-fail-under=100 --cov-branch --strict-markers"

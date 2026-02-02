@@ -1,11 +1,11 @@
 """Tests for PipelineError and error types."""
 import dataclasses
 
+from adws.adw_modules.errors import PipelineError
+
 
 def test_pipeline_error_construction() -> None:
-    """RED: Will fail with ImportError because PipelineError is not yet defined in errors.py."""
-    from adws.adw_modules.errors import PipelineError
-
+    """Test PipelineError stores all fields correctly."""
     error = PipelineError(
         step_name="test_step",
         error_type="TestError",
@@ -19,9 +19,7 @@ def test_pipeline_error_construction() -> None:
 
 
 def test_pipeline_error_default_context() -> None:
-    """RED: Will fail with ImportError because PipelineError is not yet defined in errors.py."""
-    from adws.adw_modules.errors import PipelineError
-
+    """Test PipelineError defaults context to empty dict."""
     error = PipelineError(
         step_name="step",
         error_type="Error",
@@ -31,13 +29,11 @@ def test_pipeline_error_default_context() -> None:
 
 
 def test_pipeline_error_is_frozen() -> None:
-    """RED: Will fail with ImportError because PipelineError is not yet defined in errors.py."""
-    from adws.adw_modules.errors import PipelineError
-
+    """Test PipelineError is an immutable frozen dataclass."""
     error = PipelineError(
         step_name="step",
         error_type="Error",
         message="msg",
     )
     assert dataclasses.is_dataclass(error)
-    assert getattr(type(error), "__dataclass_params__").frozen
+    assert type(error).__dataclass_params__.frozen  # type: ignore[attr-defined]

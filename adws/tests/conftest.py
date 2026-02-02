@@ -1,15 +1,27 @@
-"""Shared test fixtures for ADWS test suite.
+"""Shared test fixtures for ADWS test suite."""
+from __future__ import annotations
 
-Scaffold story (1.1) - infrastructure only. Fixtures will be added in Story 1.2
-when the types they depend on are implemented:
+from typing import TYPE_CHECKING
 
-- mock_io_ops: Mocked io_ops module (common mock patterns
-  for file ops, subprocess, SDK calls)
-- sample_workflow_context: Sample WorkflowContext instances
-  (with/without issue IDs, feedback)
-- sample_result_message: Sample ResultMessage objects (realistic SDK responses)
-- sample_beads_issue: Sample Beads issue data (for bridge step tests)
-- sample_bmad_story: Sample BMAD story markdown (for parse step tests)
+import pytest
 
-See: architecture.md § conftest.py Shared Fixtures (porting requirement)
-"""
+from adws.adw_modules.types import WorkflowContext
+
+if TYPE_CHECKING:
+    from unittest.mock import MagicMock
+
+
+@pytest.fixture
+def sample_workflow_context() -> WorkflowContext:
+    """Return a WorkflowContext with sample test data."""
+    return WorkflowContext(
+        inputs={"issue_id": "beads-123", "workflow_name": "implement_close"},
+        outputs={},
+        feedback=[],
+    )
+
+
+@pytest.fixture
+def mock_io_ops(mocker: MagicMock) -> MagicMock:
+    """Return a mocked io_ops module for boundary testing."""
+    return mocker.patch("adws.adw_modules.io_ops")  # type: ignore[no-any-return]
