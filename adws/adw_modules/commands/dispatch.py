@@ -2,8 +2,8 @@
 
 Routes command names to their associated workflows via the
 command registry. Uses io_ops boundary for workflow loading
-and execution. The "verify", "prime", "build", and
-"implement" commands route to specialized handlers.
+and execution. The "verify", "prime", "build", "implement",
+and "load_bundle" commands route to specialized handlers.
 """
 from __future__ import annotations
 
@@ -20,6 +20,10 @@ from adws.adw_modules.commands.implement import (
     ImplementCommandResult,
     run_implement_command,
 )
+from adws.adw_modules.commands.load_bundle import (
+    LoadBundleResult,
+    run_load_bundle_command,
+)
 from adws.adw_modules.commands.prime import (
     PrimeContextResult,
     run_prime_command,
@@ -35,9 +39,105 @@ from adws.adw_modules.commands.verify import (
 from adws.adw_modules.errors import PipelineError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from adws.adw_modules.commands.types import CommandSpec
     from adws.adw_modules.engine.types import Workflow
     from adws.adw_modules.types import WorkflowContext
+
+
+def _dispatch_verify(
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Dispatch /verify to specialized handler."""
+
+    def _wrap(
+        vr: VerifyCommandResult,
+    ) -> IOResult[WorkflowContext, PipelineError]:
+        return IOSuccess(
+            ctx.merge_outputs({"verify_result": vr}),
+        )
+
+    return run_verify_command(ctx).bind(_wrap)
+
+
+def _dispatch_prime(
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Dispatch /prime to specialized handler."""
+
+    def _wrap(
+        pr: PrimeContextResult,
+    ) -> IOResult[WorkflowContext, PipelineError]:
+        return IOSuccess(
+            ctx.merge_outputs({"prime_result": pr}),
+        )
+
+    return run_prime_command(ctx).bind(_wrap)
+
+
+def _dispatch_build(
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Dispatch /build to specialized handler."""
+
+    def _wrap(
+        br: BuildCommandResult,
+    ) -> IOResult[WorkflowContext, PipelineError]:
+        return IOSuccess(
+            ctx.merge_outputs({"build_result": br}),
+        )
+
+    return run_build_command(ctx).bind(_wrap)
+
+
+def _dispatch_implement(
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Dispatch /implement to specialized handler."""
+
+    def _wrap(
+        ir: ImplementCommandResult,
+    ) -> IOResult[WorkflowContext, PipelineError]:
+        return IOSuccess(
+            ctx.merge_outputs(
+                {"implement_result": ir},
+            ),
+        )
+
+    return run_implement_command(ctx).bind(_wrap)
+
+
+def _dispatch_load_bundle(
+    ctx: WorkflowContext,
+) -> IOResult[WorkflowContext, PipelineError]:
+    """Dispatch /load_bundle to specialized handler."""
+
+    def _wrap(
+        lbr: LoadBundleResult,
+    ) -> IOResult[WorkflowContext, PipelineError]:
+        return IOSuccess(
+            ctx.merge_outputs(
+                {"load_bundle_result": lbr},
+            ),
+        )
+
+    return run_load_bundle_command(ctx).bind(_wrap)
+
+
+_SPECIALIZED_HANDLERS: dict[
+    str,
+    Callable[
+        [WorkflowContext],
+        IOResult[WorkflowContext, PipelineError],
+    ],
+] = {
+    "verify": _dispatch_verify,
+    "prime": _dispatch_prime,
+    "build": _dispatch_build,
+    "implement": _dispatch_implement,
+    "load_bundle": _dispatch_load_bundle,
+}
 
 
 def _dispatch_specialized(
@@ -47,54 +147,11 @@ def _dispatch_specialized(
     """Route to specialized handler if applicable.
 
     Returns None if no specialized handler matches.
-    This avoids excessive complexity in run_command.
+    Uses a registry dict to avoid excessive complexity.
     """
-    if spec.name == "verify":
-
-        def _wrap_vr(
-            vr: VerifyCommandResult,
-        ) -> IOResult[WorkflowContext, PipelineError]:
-            return IOSuccess(
-                ctx.merge_outputs({"verify_result": vr}),
-            )
-
-        return run_verify_command(ctx).bind(_wrap_vr)
-
-    if spec.name == "prime":
-
-        def _wrap_pr(
-            pr: PrimeContextResult,
-        ) -> IOResult[WorkflowContext, PipelineError]:
-            return IOSuccess(
-                ctx.merge_outputs({"prime_result": pr}),
-            )
-
-        return run_prime_command(ctx).bind(_wrap_pr)
-
-    if spec.name == "build":
-
-        def _wrap_br(
-            br: BuildCommandResult,
-        ) -> IOResult[WorkflowContext, PipelineError]:
-            return IOSuccess(
-                ctx.merge_outputs({"build_result": br}),
-            )
-
-        return run_build_command(ctx).bind(_wrap_br)
-
-    if spec.name == "implement":
-
-        def _wrap_ir(
-            ir: ImplementCommandResult,
-        ) -> IOResult[WorkflowContext, PipelineError]:
-            return IOSuccess(
-                ctx.merge_outputs(
-                    {"implement_result": ir},
-                ),
-            )
-
-        return run_implement_command(ctx).bind(_wrap_ir)
-
+    handler = _SPECIALIZED_HANDLERS.get(spec.name)
+    if handler is not None:
+        return handler(ctx)
     return None
 
 

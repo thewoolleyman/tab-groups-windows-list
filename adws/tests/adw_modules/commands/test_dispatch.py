@@ -119,15 +119,35 @@ def test_run_command_workflow_not_found(  # type: ignore[no-untyped-def]
     assert error.error_type == "WorkflowNotFoundError"
 
 
-def test_run_command_no_workflow_returns_failure() -> None:
-    """run_command for non-workflow command returns IOFailure."""
+def test_run_command_no_workflow_returns_failure(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command for non-workflow command without handler returns IOFailure.
+
+    Mocks get_command to return a spec with workflow_name=None
+    and a name that has no specialized handler, to exercise
+    the NoWorkflowError code path in dispatch.
+    """
+    from adws.adw_modules.commands.types import (  # noqa: PLC0415
+        CommandSpec,
+    )
+
+    mocker.patch(
+        "adws.adw_modules.commands.dispatch.get_command",
+        return_value=CommandSpec(
+            name="fake_no_wf",
+            description="test",
+            python_module="test",
+            workflow_name=None,
+        ),
+    )
     ctx = WorkflowContext()
-    result = run_command("load_bundle", ctx)
+    result = run_command("fake_no_wf", ctx)
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
     assert isinstance(error, PipelineError)
     assert error.error_type == "NoWorkflowError"
-    assert "load_bundle" in error.message
+    assert "fake_no_wf" in error.message
 
 
 def test_run_command_execute_failure_propagates(  # type: ignore[no-untyped-def]
@@ -291,14 +311,49 @@ def test_dispatch_prime_failure_propagates(  # type: ignore[no-untyped-def]
     assert error.error_type == "RequiredFileError"
 
 
-def test_dispatch_load_bundle_still_returns_no_workflow_error() -> None:
-    """load_bundle still returns NoWorkflowError (regression)."""
-    ctx = WorkflowContext()
+def test_dispatch_load_bundle_uses_specialized_handler(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('load_bundle') routes to run_load_bundle_command."""
+    content = (
+        '{"file_path":"/a.py","operation":"read",'
+        '"timestamp":"2026-01-01","session_id":"s",'
+        '"hook_name":"file_tracker"}\n'
+    )
+    mocker.patch(
+        "adws.adw_modules.io_ops.read_context_bundle",
+        return_value=IOSuccess(content),
+    )
+    ctx = WorkflowContext(
+        inputs={"session_id": "session-abc"},
+    )
+    result = run_command("load_bundle", ctx)
+    assert isinstance(result, IOSuccess)
+    out = unsafe_perform_io(result.unwrap())
+    assert isinstance(out, WorkflowContext)
+    lbr = out.outputs.get("load_bundle_result")
+    from adws.adw_modules.commands.load_bundle import (  # noqa: PLC0415
+        LoadBundleResult,
+    )
+
+    assert isinstance(lbr, LoadBundleResult)
+    assert lbr.success is True
+    assert lbr.session_id == "session-abc"
+
+
+def test_dispatch_load_bundle_missing_session_id(  # type: ignore[no-untyped-def]
+    mocker,
+) -> None:
+    """run_command('load_bundle') returns error for missing id."""
+    mocker.patch(
+        "adws.adw_modules.io_ops.list_context_bundles",
+        return_value=IOSuccess([]),
+    )
+    ctx = WorkflowContext(inputs={})
     result = run_command("load_bundle", ctx)
     assert isinstance(result, IOFailure)
     error = unsafe_perform_io(result.failure())
-    assert error.error_type == "NoWorkflowError"
-    assert "load_bundle" in error.message
+    assert error.error_type == "MissingSessionIdError"
 
 
 def test_dispatch_verify_still_works(  # type: ignore[no-untyped-def]

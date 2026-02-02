@@ -28,7 +28,9 @@ from adws.adw_modules.io_ops import (
     execute_command_workflow,
     execute_sdk_call,
     get_directory_tree,
+    list_context_bundles,
     load_command_workflow,
+    read_context_bundle,
     read_file,
     read_prime_file,
     run_beads_show,
@@ -1892,3 +1894,246 @@ def test_write_context_bundle_path_traversal_blocked(
     assert (bundle_dir / "passwd.jsonl").exists()
     # Verify no file was written outside context_bundles
     assert not (tmp_path / "etc").exists()
+
+
+# --- read_context_bundle tests (Story 5.3) ---
+
+
+def test_read_context_bundle_success(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """read_context_bundle reads bundle file content."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+    bundle_file = bundle_dir / "session-abc123.jsonl"
+    bundle_file.write_text(
+        '{"file_path":"/a.py"}\n'
+        '{"file_path":"/b.py"}\n'
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_context_bundle("session-abc123")
+    assert isinstance(result, IOSuccess)
+    content = unsafe_perform_io(result.unwrap())
+    assert '{"file_path":"/a.py"}' in content
+    assert '{"file_path":"/b.py"}' in content
+
+
+def test_read_context_bundle_not_found(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """read_context_bundle returns IOFailure for missing file."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_context_bundle("nonexistent")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ContextBundleNotFoundError"
+    assert error.step_name == (
+        "io_ops.read_context_bundle"
+    )
+    assert "nonexistent" in error.message
+
+
+def test_read_context_bundle_permission_error(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """read_context_bundle returns IOFailure on PermissionError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+    bundle_file = bundle_dir / "session-noperm.jsonl"
+    bundle_file.write_text("data")
+    bundle_file.chmod(0o000)
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_context_bundle("session-noperm")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ContextBundleReadError"
+    assert error.step_name == (
+        "io_ops.read_context_bundle"
+    )
+    bundle_file.chmod(0o644)
+
+
+def test_read_context_bundle_os_error(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """read_context_bundle returns IOFailure on OSError."""
+    from pathlib import Path as PathCls  # noqa: PLC0415
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+    bundle_file = bundle_dir / "session-oserr.jsonl"
+    bundle_file.write_text("data")
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        mocker.patch.object(
+            PathCls, "read_text",
+            side_effect=OSError("disk error"),
+        )
+        result = read_context_bundle("session-oserr")
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ContextBundleReadError"
+    assert "disk error" in error.message
+
+
+def test_read_context_bundle_path_traversal_blocked(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """read_context_bundle sanitizes traversal session_ids."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = read_context_bundle(
+            "../../etc/passwd",
+        )
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert error.error_type == "ContextBundleNotFoundError"
+
+
+# --- list_context_bundles tests (Story 5.3) ---
+
+
+def test_list_context_bundles_success(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """list_context_bundles returns sorted session IDs."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "session-def.jsonl").touch()
+    (bundle_dir / "session-abc.jsonl").touch()
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = list_context_bundles()
+    assert isinstance(result, IOSuccess)
+    bundles = unsafe_perform_io(result.unwrap())
+    assert bundles == ["session-abc", "session-def"]
+
+
+def test_list_context_bundles_dir_not_exists(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """list_context_bundles returns empty list when dir missing."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = list_context_bundles()
+    assert isinstance(result, IOSuccess)
+    bundles = unsafe_perform_io(result.unwrap())
+    assert bundles == []
+
+
+def test_list_context_bundles_empty_dir(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """list_context_bundles returns empty list when dir empty."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = list_context_bundles()
+    assert isinstance(result, IOSuccess)
+    bundles = unsafe_perform_io(result.unwrap())
+    assert bundles == []
+
+
+def test_list_context_bundles_ignores_non_jsonl(
+    tmp_path: Path, mocker: Any,
+) -> None:
+    """list_context_bundles only lists .jsonl files."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    bundle_dir = (
+        tmp_path / "agents" / "context_bundles"
+    )
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "session-abc.jsonl").touch()
+    (bundle_dir / "readme.txt").touch()
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=tmp_path,
+    ):
+        result = list_context_bundles()
+    assert isinstance(result, IOSuccess)
+    bundles = unsafe_perform_io(result.unwrap())
+    assert bundles == ["session-abc"]
+
+
+def test_list_context_bundles_permission_error(
+    mocker: Any,
+) -> None:
+    """list_context_bundles returns IOFailure on PermissionError."""
+    from unittest.mock import patch  # noqa: PLC0415
+
+    mock_path = mocker.MagicMock()
+    mock_path.__truediv__ = mocker.MagicMock(
+        return_value=mock_path,
+    )
+    mock_path.is_dir.return_value = True
+    mock_path.iterdir.side_effect = PermissionError(
+        "no permission",
+    )
+
+    with patch(
+        "adws.adw_modules.io_ops._find_project_root",
+        return_value=mock_path,
+    ):
+        result = list_context_bundles()
+    assert isinstance(result, IOFailure)
+    error = unsafe_perform_io(result.failure())
+    assert isinstance(error, PipelineError)
+    assert error.error_type == "ContextBundleListError"
+    assert error.step_name == (
+        "io_ops.list_context_bundles"
+    )

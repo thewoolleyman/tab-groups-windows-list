@@ -201,6 +201,7 @@ def test_wiring_all_md_files_follow_template() -> None:
         "adws-build.md",
         "adws-prime.md",
         "adws-implement.md",
+        "adws-load-bundle.md",
     ]
     for filename in expected_files:
         md_path = md_dir / filename
@@ -266,3 +267,62 @@ def test_wiring_build_md_not_stub() -> None:
     content = md_path.read_text()
     assert "stub" not in content.lower()
     assert "Story 4.4" not in content
+
+
+# --- Load bundle command wiring tests (Story 5.3) ---
+
+
+def test_import_load_bundle_result_from_package() -> None:
+    """LoadBundleResult importable from commands package."""
+    from adws.adw_modules.commands import (  # noqa: PLC0415
+        LoadBundleResult,
+    )
+
+    assert LoadBundleResult is not None
+
+
+def test_import_run_load_bundle_command_from_package() -> None:
+    """run_load_bundle_command importable from commands package."""
+    from adws.adw_modules.commands import (  # noqa: PLC0415
+        run_load_bundle_command,
+    )
+
+    assert callable(run_load_bundle_command)
+
+
+def test_wiring_load_bundle_md_exists() -> None:
+    """adws-load-bundle.md exists in .claude/commands/."""
+    md_path = (
+        _PROJECT_ROOT / ".claude" / "commands"
+        / "adws-load-bundle.md"
+    )
+    assert md_path.exists(), f"Missing: {md_path}"
+    content = md_path.read_text()
+    assert "adws.adw_modules.commands.dispatch" in content
+    assert "load_bundle" in content
+
+
+def test_wiring_load_bundle_md_references_module() -> None:
+    """adws-load-bundle.md references the load_bundle module."""
+    md_path = (
+        _PROJECT_ROOT / ".claude" / "commands"
+        / "adws-load-bundle.md"
+    )
+    assert md_path.exists(), f"Missing: {md_path}"
+    content = md_path.read_text()
+    assert "run_load_bundle_command" in content
+    assert (
+        "adws.adw_modules.commands.load_bundle"
+        in content
+    )
+
+
+def test_wiring_load_bundle_md_not_stub() -> None:
+    """adws-load-bundle.md is not marked as stub."""
+    md_path = (
+        _PROJECT_ROOT / ".claude" / "commands"
+        / "adws-load-bundle.md"
+    )
+    assert md_path.exists(), f"Missing: {md_path}"
+    content = md_path.read_text()
+    assert "stub" not in content.lower()

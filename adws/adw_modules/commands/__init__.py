@@ -2,7 +2,7 @@
 
 Public API for command infrastructure: types, registry,
 dispatch, verify (FR30), prime (FR31), build (FR32),
-and implement (FR28).
+implement (FR28), and load_bundle (FR35).
 """
 from adws.adw_modules.commands.build import (
     BuildCommandResult,
@@ -12,6 +12,10 @@ from adws.adw_modules.commands.dispatch import run_command
 from adws.adw_modules.commands.implement import (
     ImplementCommandResult,
     run_implement_command,
+)
+from adws.adw_modules.commands.load_bundle import (
+    LoadBundleResult,
+    run_load_bundle_command,
 )
 from adws.adw_modules.commands.prime import (
     PrimeContextResult,
@@ -32,6 +36,7 @@ __all__ = [
     "BuildCommandResult",
     "CommandSpec",
     "ImplementCommandResult",
+    "LoadBundleResult",
     "PrimeContextResult",
     "PrimeFileSpec",
     "VerifyCommandResult",
@@ -40,6 +45,7 @@ __all__ = [
     "run_build_command",
     "run_command",
     "run_implement_command",
+    "run_load_bundle_command",
     "run_prime_command",
     "run_verify_command",
 ]

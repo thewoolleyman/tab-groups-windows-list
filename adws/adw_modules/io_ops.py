@@ -724,6 +724,90 @@ def write_context_bundle(
     return IOSuccess(None)
 
 
+def read_context_bundle(
+    session_id: str,
+) -> IOResult[str, PipelineError]:
+    """Read a context bundle file for the given session (FR35).
+
+    Uses _find_project_root() to locate project root and
+    _sanitize_session_id() for path traversal protection.
+    Returns IOSuccess(content) or IOFailure(PipelineError).
+    """
+    try:
+        safe_id = _sanitize_session_id(session_id)
+        root = _find_project_root()
+        bundle_dir = root / "agents" / "context_bundles"
+        bundle_file = bundle_dir / f"{safe_id}.jsonl"
+        content = bundle_file.read_text()
+    except FileNotFoundError:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.read_context_bundle",
+                error_type="ContextBundleNotFoundError",
+                message=(
+                    f"Context bundle not found"
+                    f" for session: {session_id}"
+                ),
+                context={
+                    "session_id": session_id,
+                },
+            ),
+        )
+    except (PermissionError, OSError) as exc:
+        return IOFailure(
+            PipelineError(
+                step_name="io_ops.read_context_bundle",
+                error_type="ContextBundleReadError",
+                message=(
+                    f"Failed to read context bundle"
+                    f" for session {session_id}:"
+                    f" {exc}"
+                ),
+                context={
+                    "session_id": session_id,
+                },
+            ),
+        )
+    return IOSuccess(content)
+
+
+def list_context_bundles() -> IOResult[
+    list[str], PipelineError
+]:
+    """List available context bundle session IDs (FR35).
+
+    Returns sorted list of session IDs (filenames without
+    .jsonl extension). Returns empty list if directory does
+    not exist or is empty. Returns IOFailure on permission
+    error.
+    """
+    root = _find_project_root()
+    bundle_dir = root / "agents" / "context_bundles"
+    if not bundle_dir.is_dir():
+        return IOSuccess([])
+    try:
+        bundles = sorted(
+            f.stem
+            for f in bundle_dir.iterdir()
+            if f.suffix == ".jsonl"
+        )
+    except (PermissionError, OSError) as exc:
+        return IOFailure(
+            PipelineError(
+                step_name=(
+                    "io_ops.list_context_bundles"
+                ),
+                error_type="ContextBundleListError",
+                message=(
+                    f"Failed to list context"
+                    f" bundles: {exc}"
+                ),
+                context={},
+            ),
+        )
+    return IOSuccess(bundles)
+
+
 def write_stderr(
     message: str,
 ) -> IOResult[None, PipelineError]:
