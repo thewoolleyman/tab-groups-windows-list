@@ -21,8 +21,15 @@ from adws.adw_modules.engine.executor import (
 )
 from adws.adw_modules.engine.types import Step, Workflow
 from adws.adw_modules.errors import PipelineError
-from adws.adw_modules.steps import check_sdk_available, execute_shell_step
-from adws.adw_modules.types import WorkflowContext
+from adws.adw_modules.steps import (
+    check_sdk_available,
+    execute_shell_step,
+    run_jest_step,
+    run_mypy_step,
+    run_playwright_step,
+    run_ruff_step,
+)
+from adws.adw_modules.types import VerifyResult, WorkflowContext
 from adws.workflows import WorkflowName, load_workflow
 
 if TYPE_CHECKING:
@@ -101,6 +108,34 @@ class TestResolveStepFunction:
         assert isinstance(result, IOSuccess)
         resolved_fn = unsafe_perform_io(result.unwrap())
         assert resolved_fn is execute_shell_step
+
+    def test_resolve_run_jest_step(self) -> None:
+        """run_jest_step is in the registry."""
+        result = _resolve_step_function("run_jest_step")
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is run_jest_step
+
+    def test_resolve_run_playwright_step(self) -> None:
+        """run_playwright_step is in the registry."""
+        result = _resolve_step_function("run_playwright_step")
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is run_playwright_step
+
+    def test_resolve_run_mypy_step(self) -> None:
+        """run_mypy_step is in the registry."""
+        result = _resolve_step_function("run_mypy_step")
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is run_mypy_step
+
+    def test_resolve_run_ruff_step(self) -> None:
+        """run_ruff_step is in the registry."""
+        result = _resolve_step_function("run_ruff_step")
+        assert isinstance(result, IOSuccess)
+        resolved_fn = unsafe_perform_io(result.unwrap())
+        assert resolved_fn is run_ruff_step
 
 
 # --- Task 1: run_step tests ---
@@ -2618,3 +2653,222 @@ class TestEngineCombinatorExecution:
         assert final.outputs["verify"] is True
         # Impl outputs promoted to inputs
         assert final.inputs["impl"] is True
+
+
+# --- Story 3.2: Verify workflow integration tests ---
+
+
+class TestVerifyWorkflowIntegration:
+    """Integration tests for verify workflow execution."""
+
+    @staticmethod
+    def _verify_ok(
+        tool: str,
+    ) -> _StepFn:
+        """Create a verify step that succeeds."""
+
+        def step(
+            ctx: WorkflowContext,
+        ) -> IOResult[WorkflowContext, PipelineError]:
+            vr = VerifyResult(
+                tool_name=tool,
+                passed=True,
+                errors=[],
+                raw_output=f"{tool} passed",
+            )
+            return IOSuccess(
+                ctx.merge_outputs(
+                    {f"verify_{tool}": vr},
+                ),
+            )
+
+        return step
+
+    def test_verify_workflow_all_pass(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """All 4 steps succeed, IOSuccess with VerifyResults."""
+        wf = load_workflow(WorkflowName.VERIFY)
+        assert wf is not None
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "run_jest_step": self._verify_ok("jest"),
+                "run_playwright_step": self._verify_ok(
+                    "playwright",
+                ),
+                "run_mypy_step": self._verify_ok("mypy"),
+                "run_ruff_step": self._verify_ok("ruff"),
+            },
+        )
+
+        ctx = WorkflowContext()
+        result = run_workflow(wf, ctx)
+        assert isinstance(result, IOSuccess)
+        final = unsafe_perform_io(result.unwrap())
+        # Last step's outputs in outputs dict
+        vr_ruff = final.outputs["verify_ruff"]
+        assert isinstance(vr_ruff, VerifyResult)
+        assert vr_ruff.tool_name == "ruff"
+        assert vr_ruff.passed is True
+        # Earlier steps promoted to inputs
+        for tool in ("jest", "playwright", "mypy"):
+            vr = final.inputs[f"verify_{tool}"]
+            assert isinstance(vr, VerifyResult)
+            assert vr.tool_name == tool
+            assert vr.passed is True
+
+    def test_verify_workflow_single_failure(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Jest fails, others succeed (always_run), IOFailure."""
+        wf = load_workflow(WorkflowName.VERIFY)
+        assert wf is not None
+
+        calls: list[str] = []
+
+        def track_success(
+            tool: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(tool)
+                vr = VerifyResult(
+                    tool_name=tool,
+                    passed=True,
+                    errors=[],
+                    raw_output=f"{tool} passed",
+                )
+                return IOSuccess(
+                    ctx.merge_outputs(
+                        {f"verify_{tool}": vr},
+                    ),
+                )
+
+            return step
+
+        def track_failure(
+            tool: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(tool)
+                return IOFailure(
+                    PipelineError(
+                        step_name=f"run_{tool}_step",
+                        error_type="VerifyFailed",
+                        message=f"{tool} failed",
+                        context={},
+                    ),
+                )
+
+            return step
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "run_jest_step": track_failure("jest"),
+                "run_playwright_step": track_success(
+                    "playwright",
+                ),
+                "run_mypy_step": track_success("mypy"),
+                "run_ruff_step": track_success("ruff"),
+            },
+        )
+
+        ctx = WorkflowContext()
+        result = run_workflow(wf, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        # Original error is jest
+        assert "jest failed" in error.message
+        assert error.step_name == "run_jest_step"
+        # No always_run_failures (only one failure)
+        assert "always_run_failures" not in error.context
+        # All 4 steps executed (always_run)
+        assert calls == [
+            "jest", "playwright", "mypy", "ruff",
+        ]
+
+    def test_verify_workflow_multiple_failures(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """Jest and ruff fail, all 4 execute, aggregated."""
+        wf = load_workflow(WorkflowName.VERIFY)
+        assert wf is not None
+
+        calls: list[str] = []
+
+        def track_success(
+            tool: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(tool)
+                vr = VerifyResult(
+                    tool_name=tool,
+                    passed=True,
+                    errors=[],
+                    raw_output=f"{tool} ok",
+                )
+                return IOSuccess(
+                    ctx.merge_outputs(
+                        {f"verify_{tool}": vr},
+                    ),
+                )
+
+            return step
+
+        def track_failure(
+            tool: str,
+        ) -> _StepFn:
+            def step(
+                ctx: WorkflowContext,
+            ) -> IOResult[WorkflowContext, PipelineError]:
+                calls.append(tool)
+                return IOFailure(
+                    PipelineError(
+                        step_name=f"run_{tool}_step",
+                        error_type="VerifyFailed",
+                        message=f"{tool} failed",
+                        context={},
+                    ),
+                )
+
+            return step
+
+        mocker.patch(
+            "adws.adw_modules.engine.executor._STEP_REGISTRY",
+            {
+                "run_jest_step": track_failure("jest"),
+                "run_playwright_step": track_success(
+                    "playwright",
+                ),
+                "run_mypy_step": track_success("mypy"),
+                "run_ruff_step": track_failure("ruff"),
+            },
+        )
+
+        ctx = WorkflowContext()
+        result = run_workflow(wf, ctx)
+        assert isinstance(result, IOFailure)
+        error = unsafe_perform_io(result.failure())
+        # Primary error is jest (first failure)
+        assert "jest failed" in error.message
+        assert error.step_name == "run_jest_step"
+        # Ruff failure in always_run_failures
+        ar_failures = error.context["always_run_failures"]
+        assert isinstance(ar_failures, list)
+        assert len(ar_failures) == 1
+        assert "ruff failed" in str(ar_failures[0])
+        # All 4 steps executed
+        assert calls == [
+            "jest", "playwright", "mypy", "ruff",
+        ]

@@ -11,6 +11,7 @@ class WorkflowName:
     IMPLEMENT_VERIFY_CLOSE = "implement_verify_close"
     CONVERT_STORIES_TO_BEADS = "convert_stories_to_beads"
     SAMPLE = "sample"
+    VERIFY = "verify"
 
 
 # --- Registered workflows ---
@@ -37,6 +38,41 @@ _CONVERT_STORIES_TO_BEADS = Workflow(
     description="Convert BMAD stories to Beads issues with workflow tags",
     dispatchable=False,
     steps=[],  # Steps populated in Epic 6
+)
+
+_VERIFY = Workflow(
+    name=WorkflowName.VERIFY,
+    description=(
+        "Full local quality gate:"
+        " Jest, Playwright, mypy, ruff"
+    ),
+    dispatchable=False,
+    steps=[
+        Step(
+            name="jest",
+            function="run_jest_step",
+            always_run=True,
+            output="jest_results",
+        ),
+        Step(
+            name="playwright",
+            function="run_playwright_step",
+            always_run=True,
+            output="playwright_results",
+        ),
+        Step(
+            name="mypy",
+            function="run_mypy_step",
+            always_run=True,
+            output="mypy_results",
+        ),
+        Step(
+            name="ruff",
+            function="run_ruff_step",
+            always_run=True,
+            output="ruff_results",
+        ),
+    ],
 )
 
 _SAMPLE = Workflow(
@@ -72,6 +108,7 @@ _REGISTRY: dict[str, Workflow] = {
     _IMPLEMENT_CLOSE.name: _IMPLEMENT_CLOSE,
     _IMPLEMENT_VERIFY_CLOSE.name: _IMPLEMENT_VERIFY_CLOSE,
     _CONVERT_STORIES_TO_BEADS.name: _CONVERT_STORIES_TO_BEADS,
+    _VERIFY.name: _VERIFY,
     _SAMPLE.name: _SAMPLE,
 }
 

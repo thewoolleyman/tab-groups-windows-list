@@ -127,3 +127,87 @@ def test_sample_workflow_in_all_list() -> None:
 def test_sample_workflow_name_constant() -> None:
     """WorkflowName.SAMPLE equals 'sample'."""
     assert WorkflowName.SAMPLE == "sample"
+
+
+# --- Story 3.2: Verify workflow registry tests ---
+
+
+def test_verify_workflow_name_constant() -> None:
+    """WorkflowName.VERIFY equals 'verify'."""
+    assert WorkflowName.VERIFY == "verify"
+
+
+def test_verify_workflow_registered() -> None:
+    """load_workflow("verify") returns verify workflow."""
+    wf = load_workflow(WorkflowName.VERIFY)
+    assert wf is not None
+    assert isinstance(wf, Workflow)
+    assert wf.name == WorkflowName.VERIFY
+
+
+def test_verify_workflow_not_dispatchable() -> None:
+    """Verify workflow has dispatchable=False."""
+    wf = load_workflow(WorkflowName.VERIFY)
+    assert wf is not None
+    assert wf.dispatchable is False
+
+
+def test_verify_workflow_has_four_steps() -> None:
+    """Verify workflow has 4 steps with expected names."""
+    wf = load_workflow(WorkflowName.VERIFY)
+    assert wf is not None
+    assert len(wf.steps) == 4
+    names = [s.name for s in wf.steps]
+    assert names == ["jest", "playwright", "mypy", "ruff"]
+    for step in wf.steps:
+        assert isinstance(step, Step)
+
+
+def test_verify_workflow_all_steps_always_run() -> None:
+    """All verify steps have always_run=True."""
+    wf = load_workflow(WorkflowName.VERIFY)
+    assert wf is not None
+    for step in wf.steps:
+        assert step.always_run is True
+
+
+def test_verify_workflow_steps_have_output_names() -> None:
+    """Each verify step has a unique output name."""
+    wf = load_workflow(WorkflowName.VERIFY)
+    assert wf is not None
+    outputs = [s.output for s in wf.steps]
+    assert outputs == [
+        "jest_results",
+        "playwright_results",
+        "mypy_results",
+        "ruff_results",
+    ]
+    # All unique
+    assert len(set(outputs)) == len(outputs)
+
+
+def test_verify_workflow_step_functions() -> None:
+    """Each verify step references correct function name."""
+    wf = load_workflow(WorkflowName.VERIFY)
+    assert wf is not None
+    functions = [s.function for s in wf.steps]
+    assert functions == [
+        "run_jest_step",
+        "run_playwright_step",
+        "run_mypy_step",
+        "run_ruff_step",
+    ]
+
+
+def test_verify_workflow_not_in_dispatchable_list() -> None:
+    """Verify workflow excluded from dispatchable listing."""
+    dispatchable = list_workflows(dispatchable_only=True)
+    names = [w.name for w in dispatchable]
+    assert WorkflowName.VERIFY not in names
+
+
+def test_verify_workflow_in_all_list() -> None:
+    """Verify workflow appears in all-workflows listing."""
+    all_wfs = list_workflows()
+    names = [w.name for w in all_wfs]
+    assert WorkflowName.VERIFY in names
