@@ -71,7 +71,7 @@ development_status:
   4-2-verify-command-entry-point: done
   4-3-prime-command-for-context-loading: done
   4-4-build-command-and-implement-close-workflow: done
-  4-5-write-failing-tests-step-red-phase: backlog
+  4-5-write-failing-tests-step-red-phase: done
   4-6-verify-tests-fail-step-red-gate: backlog
   4-7-implement-and-refactor-steps-green-and-refactor-phases: backlog
   4-8-implement-verify-close-workflow-and-implement-command: backlog

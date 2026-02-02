@@ -14,6 +14,9 @@ from adws.adw_modules.steps.run_jest_step import run_jest_step
 from adws.adw_modules.steps.run_mypy_step import run_mypy_step
 from adws.adw_modules.steps.run_playwright_step import run_playwright_step
 from adws.adw_modules.steps.run_ruff_step import run_ruff_step
+from adws.adw_modules.steps.write_failing_tests import (
+    write_failing_tests,
+)
 
 __all__ = [
     "accumulate_verify_feedback",
@@ -25,4 +28,5 @@ __all__ = [
     "run_mypy_step",
     "run_playwright_step",
     "run_ruff_step",
+    "write_failing_tests",
 ]
