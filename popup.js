@@ -60,6 +60,22 @@ function generateWindowName(tabs) {
 }
 
 /**
+ * Get the display name for a window
+ * @param {Object} win - Window object with optional name property and tabs array
+ * @returns {string} - Window display name (custom name or generated from tabs)
+ */
+function getWindowDisplayName(win) {
+  // If window has a custom name (set via Chrome Menu -> More Tools -> Name Window...),
+  // use it instead of generating from tab titles
+  if (win && win.name) {
+    return win.name;
+  }
+
+  // Fallback to generating name from tab titles
+  return generateWindowName(win?.tabs || []);
+}
+
+/**
  * Debounce function to prevent rapid re-renders
  * @param {Function} fn - Function to debounce
  * @param {number} delay - Delay in milliseconds
@@ -113,9 +129,9 @@ async function refreshUI() {
       const windowEl = document.createElement('div');
       windowEl.className = 'window-item';
 
-      // Generate window name from tab titles
+      // Get window display name (custom name if set, otherwise generated from tab titles)
       /* istanbul ignore next - tabs always present with populate:true */
-      const windowTitle = generateWindowName(win.tabs || []);
+      const windowTitle = getWindowDisplayName(win);
 
       // Restore expansion state
       if (expandedWindows.has(windowTitle)) {
@@ -394,6 +410,7 @@ if (typeof module !== 'undefined' && module.exports) {
     debounce,
     mapColor,
     generateWindowName,
+    getWindowDisplayName,
     buildOrderedWindowContent,
     createGroupElement,
     createTabElement,

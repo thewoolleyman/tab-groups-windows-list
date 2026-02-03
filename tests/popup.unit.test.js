@@ -647,7 +647,7 @@ describe('Window naming logic', () => {
 
 describe('generateWindowName function', () => {
   // Import the function (will be added to exports)
-  const { generateWindowName } = require('../popup.js');
+  const { generateWindowName, getWindowDisplayName } = require('../popup.js');
 
   test('should return empty string for empty tabs array', () => {
     expect(generateWindowName([])).toBe('');
@@ -1531,5 +1531,84 @@ describe('3-level hierarchy validation', () => {
     expect(hierarchy.length).toBe(2);
     expect(hierarchy[0].groups.length).toBe(2);
     expect(hierarchy[1].groups.length).toBe(1);
+  });
+});
+
+describe('getWindowDisplayName function', () => {
+  const { getWindowDisplayName } = require('../popup.js');
+
+  test('should use window.name when it exists', () => {
+    const win = {
+      id: 1,
+      name: 'My Custom Window',
+      tabs: [
+        { title: 'Tab 1' },
+        { title: 'Tab 2' }
+      ]
+    };
+    expect(getWindowDisplayName(win)).toBe('My Custom Window');
+  });
+
+  test('should use generated name when window.name is empty string', () => {
+    const win = {
+      id: 1,
+      name: '',
+      tabs: [{ title: 'GitHub' }]
+    };
+    expect(getWindowDisplayName(win)).toBe('GitHub');
+  });
+
+  test('should use generated name when window.name is null', () => {
+    const win = {
+      id: 1,
+      name: null,
+      tabs: [{ title: 'GitHub' }]
+    };
+    expect(getWindowDisplayName(win)).toBe('GitHub');
+  });
+
+  test('should use generated name when window.name is undefined', () => {
+    const win = {
+      id: 1,
+      tabs: [{ title: 'GitHub' }]
+    };
+    expect(getWindowDisplayName(win)).toBe('GitHub');
+  });
+
+  test('should use generated name when window has no name property', () => {
+    const win = {
+      id: 1,
+      tabs: [
+        { title: 'Tab One' },
+        { title: 'Tab Two' }
+      ]
+    };
+    expect(getWindowDisplayName(win)).toBe('Tab One, Tab Two');
+  });
+
+  test('should preserve custom window name with special characters', () => {
+    const win = {
+      id: 1,
+      name: 'Work: Important 🔥',
+      tabs: [{ title: 'Some Tab' }]
+    };
+    expect(getWindowDisplayName(win)).toBe('Work: Important 🔥');
+  });
+
+  test('should handle window with custom name but no tabs', () => {
+    const win = {
+      id: 1,
+      name: 'Empty Window',
+      tabs: []
+    };
+    expect(getWindowDisplayName(win)).toBe('Empty Window');
+  });
+
+  test('should fallback to empty string when no name and no tabs', () => {
+    const win = {
+      id: 1,
+      tabs: []
+    };
+    expect(getWindowDisplayName(win)).toBe('');
   });
 });
