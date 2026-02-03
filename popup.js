@@ -60,18 +60,21 @@ function generateWindowName(tabs) {
 }
 
 /**
- * Get the display name for a window
- * @param {Object} win - Window object with optional name property and tabs array
- * @returns {string} - Window display name (custom name or generated from tabs)
+ * Get the display name for a window.
+ * Checks the cached window names first (from native host via service worker),
+ * then falls back to generating a name from tab titles.
+ * chrome.windows.Window has no 'name' property in the Chrome Extensions API.
+ * @param {Object} win - Chrome Window object with tabs array
+ * @param {Object} [windowNamesCache] - Cached {windowId: {name, urlFingerprint}} from service worker
+ * @returns {string} - Window display name (cached custom name or generated from tab titles)
  */
-function getWindowDisplayName(win) {
-  // If window has a custom name (set via Chrome Menu -> More Tools -> Name Window...),
-  // use it instead of generating from tab titles
-  if (win && win.name) {
-    return win.name;
+function getWindowDisplayName(win, windowNamesCache) {
+  if (windowNamesCache && win && win.id !== undefined) {
+    const cached = windowNamesCache[String(win.id)];
+    if (cached && cached.name && !cached.closed) {
+      return cached.name;
+    }
   }
-
-  // Fallback to generating name from tab titles
   return generateWindowName(win?.tabs || []);
 }
 
@@ -113,85 +116,123 @@ async function refreshUI() {
       if (title) expandedGroups.add(title);
     });
 
+    // Fetch cached window names from service worker
+    let windowNamesCache = {};
+    try {
+      windowNamesCache = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'getWindowNames' }, (response) => {
+          if (response && response.success) {
+            resolve(response.windowNames || {});
+          } else {
+            resolve({});
+          }
+        });
+      });
+    } catch (_e) {
+      windowNamesCache = {};
+    }
+
+    // Check if native host is installed
+    let nativeHostInstalled = false;
+    try {
+      nativeHostInstalled = await new Promise((resolve) => {
+        chrome.runtime.sendNativeMessage(
+          'com.pbjtime.tab_groups_windows_list',
+          { action: 'ping' },
+          (response) => {
+            resolve(!!response);
+          }
+        );
+      });
+    } catch (_e) {
+      nativeHostInstalled = false;
+    }
+
     // Fetch fresh data
     const windows = await chrome.windows.getAll({ populate: true });
     const groups = await chrome.tabGroups.query({});
 
     if (windows.length === 0) {
       container.innerHTML = '<div class="empty-msg">No windows found.</div>';
-      return;
+    } else {
+      container.innerHTML = ''; // Clear current content
+
+      // Build Hierarchy: Window -> Group -> Tab
+      windows.forEach(win => {
+        const windowEl = document.createElement('div');
+        windowEl.className = 'window-item';
+
+        // Get window display name (custom name if cached, otherwise generated from tab titles)
+        /* istanbul ignore next - tabs always present with populate:true */
+        const windowTitle = getWindowDisplayName(win, windowNamesCache);
+
+        // Restore expansion state
+        if (expandedWindows.has(windowTitle)) {
+          windowEl.classList.add('expanded');
+        }
+
+        const windowHeader = document.createElement('div');
+        windowHeader.className = 'window-header';
+
+        const expandIcon = document.createElement('span');
+        expandIcon.className = 'expand-icon';
+        expandIcon.textContent = '▶';
+
+        const windowTitleEl = document.createElement('span');
+        windowTitleEl.textContent = windowTitle;
+
+        windowHeader.appendChild(expandIcon);
+        windowHeader.appendChild(windowTitleEl);
+
+        // Click to focus window
+        windowHeader.addEventListener('click', (e) => {
+          /* istanbul ignore next - UI branch tested via E2E */
+          if (e.target === expandIcon) {
+            windowEl.classList.toggle('expanded');
+          } else {
+            chrome.windows.update(win.id, { focused: true });
+          }
+        });
+
+        // Toggle expansion on icon click
+        expandIcon.addEventListener('click', (e) => {
+          e.stopPropagation();
+          windowEl.classList.toggle('expanded');
+        });
+
+        const windowContent = document.createElement('div');
+        windowContent.className = 'content';
+
+        // Find groups in this window
+        const groupsInWindow = groups.filter(g => g.windowId === win.id);
+
+        // Build ordered content: interleave groups and ungrouped tabs by tab index
+        const orderedContent = buildOrderedWindowContent(win, groupsInWindow);
+
+        // Render ordered content
+        orderedContent.forEach(item => {
+          /* istanbul ignore else - only 'tab' and 'group' types exist */
+          if (item.type === 'tab') {
+            const tabEl = createTabElement(item.tab, win.id, true);
+            windowContent.appendChild(tabEl);
+          } else if (item.type === 'group') {
+            const groupEl = createGroupElement(item.group, item.tabs, win.id, expandedGroups);
+            windowContent.appendChild(groupEl);
+          }
+        });
+
+        windowEl.appendChild(windowHeader);
+        windowEl.appendChild(windowContent);
+        container.appendChild(windowEl);
+      });
     }
 
-    container.innerHTML = ''; // Clear current content
-
-    // Build Hierarchy: Window -> Group -> Tab
-    windows.forEach(win => {
-      const windowEl = document.createElement('div');
-      windowEl.className = 'window-item';
-
-      // Get window display name (custom name if set, otherwise generated from tab titles)
-      /* istanbul ignore next - tabs always present with populate:true */
-      const windowTitle = getWindowDisplayName(win);
-
-      // Restore expansion state
-      if (expandedWindows.has(windowTitle)) {
-        windowEl.classList.add('expanded');
-      }
-
-      const windowHeader = document.createElement('div');
-      windowHeader.className = 'window-header';
-
-      const expandIcon = document.createElement('span');
-      expandIcon.className = 'expand-icon';
-      expandIcon.textContent = '▶';
-
-      const windowTitleEl = document.createElement('span');
-      windowTitleEl.textContent = windowTitle;
-
-      windowHeader.appendChild(expandIcon);
-      windowHeader.appendChild(windowTitleEl);
-
-      // Click to focus window
-      windowHeader.addEventListener('click', (e) => {
-        /* istanbul ignore next - UI branch tested via E2E */
-        if (e.target === expandIcon) {
-          windowEl.classList.toggle('expanded');
-        } else {
-          chrome.windows.update(win.id, { focused: true });
-        }
-      });
-
-      // Toggle expansion on icon click
-      expandIcon.addEventListener('click', (e) => {
-        e.stopPropagation();
-        windowEl.classList.toggle('expanded');
-      });
-
-      const windowContent = document.createElement('div');
-      windowContent.className = 'content';
-
-      // Find groups in this window
-      const groupsInWindow = groups.filter(g => g.windowId === win.id);
-
-      // Build ordered content: interleave groups and ungrouped tabs by tab index
-      const orderedContent = buildOrderedWindowContent(win, groupsInWindow);
-
-      // Render ordered content
-      orderedContent.forEach(item => {
-        /* istanbul ignore else - only 'tab' and 'group' types exist */
-        if (item.type === 'tab') {
-          const tabEl = createTabElement(item.tab, win.id, true);
-          windowContent.appendChild(tabEl);
-        } else if (item.type === 'group') {
-          const groupEl = createGroupElement(item.group, item.tabs, win.id, expandedGroups);
-          windowContent.appendChild(groupEl);
-        }
-      });
-
-      windowEl.appendChild(windowHeader);
-      windowEl.appendChild(windowContent);
-      container.appendChild(windowEl);
-    });
+    // Show setup instructions link when native host is not installed
+    if (!nativeHostInstalled) {
+      const setupLink = document.createElement('div');
+      setupLink.className = 'setup-link';
+      container.appendChild(setupLink);
+    }
 
   } catch (error) {
     console.error('Error loading data:', error);

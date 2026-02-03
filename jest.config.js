@@ -3,6 +3,7 @@ module.exports = {
   testMatch: ['**/tests/**/*.unit.test.js'],
   collectCoverageFrom: [
     'popup.js',
+    'background.js',
     '!node_modules/**',
     '!tests/**',
   ],

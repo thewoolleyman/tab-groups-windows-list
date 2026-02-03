@@ -5,8 +5,13 @@
   "description": "A 3-level expandable hierarchy of Windows, Tab Groups, and Tabs.",
   "permissions": [
     "tabGroups",
-    "windows"
+    "windows",
+    "nativeMessaging",
+    "storage"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

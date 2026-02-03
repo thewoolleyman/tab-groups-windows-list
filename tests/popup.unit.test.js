@@ -47,6 +47,10 @@ const mockChrome = {
     onMoved: { addListener: jest.fn() },
     onAttached: { addListener: jest.fn() },
     onDetached: { addListener: jest.fn() }
+  },
+  runtime: {
+    sendMessage: jest.fn(),
+    sendNativeMessage: jest.fn()
   }
 };
 
@@ -59,6 +63,8 @@ global.window = { _chromeListenersRegistered: false, refreshUI: null };
 const {
   debounce,
   mapColor,
+  generateWindowName,
+  getWindowDisplayName,
   buildOrderedWindowContent,
   createGroupElement,
   createTabElement,
@@ -823,6 +829,14 @@ describe('refreshUI function', () => {
 
     // Reset document.querySelectorAll mock
     mockDocument.querySelectorAll.mockReturnValue([]);
+
+    // Default mocks for runtime messaging (needed since refreshUI now fetches cache)
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true, windowNames: {} });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb({ success: true, windows: [] });
+    });
   });
 
   test('should return early if container is not set', async () => {
@@ -1535,80 +1549,345 @@ describe('3-level hierarchy validation', () => {
 });
 
 describe('getWindowDisplayName function', () => {
-  const { getWindowDisplayName } = require('../popup.js');
+  // getWindowDisplayName(win, windowNamesCache) checks the cache first,
+  // then falls back to generateWindowName(win?.tabs || []).
 
-  test('should use window.name when it exists', () => {
+  test('should return cached name when windowNamesCache has entry for window id', () => {
     const win = {
-      id: 1,
-      name: 'My Custom Window',
-      tabs: [
-        { title: 'Tab 1' },
-        { title: 'Tab 2' }
-      ]
+      id: 42,
+      tabs: [{ title: 'Tab 1' }, { title: 'Tab 2' }]
     };
-    expect(getWindowDisplayName(win)).toBe('My Custom Window');
+    const cache = { '42': { name: 'My Project Window', urlFingerprint: 'github.com' } };
+    expect(getWindowDisplayName(win, cache)).toBe('My Project Window');
   });
 
-  test('should use generated name when window.name is empty string', () => {
+  test('should fall back to generateWindowName when cache has no entry for window id', () => {
     const win = {
-      id: 1,
-      name: '',
+      id: 99,
       tabs: [{ title: 'GitHub' }]
     };
-    expect(getWindowDisplayName(win)).toBe('GitHub');
+    const cache = { '42': { name: 'Other Window', urlFingerprint: 'example.com' } };
+    expect(getWindowDisplayName(win, cache)).toBe('GitHub');
   });
 
-  test('should use generated name when window.name is null', () => {
+  test('should fall back to generateWindowName when cache is null', () => {
     const win = {
       id: 1,
-      name: null,
-      tabs: [{ title: 'GitHub' }]
+      tabs: [{ title: 'Tab One' }, { title: 'Tab Two' }]
     };
-    expect(getWindowDisplayName(win)).toBe('GitHub');
+    expect(getWindowDisplayName(win, null)).toBe('Tab One, Tab Two');
   });
 
-  test('should use generated name when window.name is undefined', () => {
+  test('should fall back to generateWindowName when cache is undefined', () => {
     const win = {
       id: 1,
       tabs: [{ title: 'GitHub' }]
     };
-    expect(getWindowDisplayName(win)).toBe('GitHub');
+    expect(getWindowDisplayName(win, undefined)).toBe('GitHub');
   });
 
-  test('should use generated name when window has no name property', () => {
+  test('should fall back to generateWindowName when cache is empty object', () => {
     const win = {
       id: 1,
-      tabs: [
-        { title: 'Tab One' },
-        { title: 'Tab Two' }
-      ]
+      tabs: [{ title: 'Tab One' }, { title: 'Tab Two' }]
     };
-    expect(getWindowDisplayName(win)).toBe('Tab One, Tab Two');
+    expect(getWindowDisplayName(win, {})).toBe('Tab One, Tab Two');
   });
 
-  test('should preserve custom window name with special characters', () => {
+  test('should ignore cached entry if name is empty string', () => {
     const win = {
       id: 1,
-      name: 'Work: Important 🔥',
-      tabs: [{ title: 'Some Tab' }]
+      tabs: [{ title: 'GitHub' }]
     };
-    expect(getWindowDisplayName(win)).toBe('Work: Important 🔥');
+    const cache = { '1': { name: '', urlFingerprint: 'github.com' } };
+    expect(getWindowDisplayName(win, cache)).toBe('GitHub');
   });
 
-  test('should handle window with custom name but no tabs', () => {
+  test('should ignore stray name property on window object, use cache instead', () => {
     const win = {
       id: 1,
-      name: 'Empty Window',
-      tabs: []
+      name: 'Stray Property',
+      tabs: [{ title: 'Tab 1' }, { title: 'Tab 2' }]
     };
-    expect(getWindowDisplayName(win)).toBe('Empty Window');
+    const cache = { '1': { name: 'Cached Name', urlFingerprint: 'example.com' } };
+    expect(getWindowDisplayName(win, cache)).toBe('Cached Name');
   });
 
-  test('should fallback to empty string when no name and no tabs', () => {
+  test('should ignore stray name property and fall back to tab names when no cache', () => {
     const win = {
       id: 1,
-      tabs: []
+      name: 'Stray Property',
+      tabs: [{ title: 'Tab 1' }, { title: 'Tab 2' }]
     };
+    expect(getWindowDisplayName(win)).toBe('Tab 1, Tab 2');
+  });
+
+  test('should return empty string when window has no tabs and no cache', () => {
+    const win = { id: 1, tabs: [] };
     expect(getWindowDisplayName(win)).toBe('');
+  });
+
+  test('should handle null/undefined window gracefully', () => {
+    expect(getWindowDisplayName(null)).toBe('');
+    expect(getWindowDisplayName(undefined)).toBe('');
+  });
+
+  test('should handle window with missing tabs array and no cache', () => {
+    const win = { id: 1 };
+    expect(getWindowDisplayName(win)).toBe('');
+  });
+
+  test('should skip closed entries in cache', () => {
+    const win = {
+      id: 1,
+      tabs: [{ title: 'GitHub' }]
+    };
+    const cache = { '1': { name: 'Old Name', urlFingerprint: 'github.com', closed: true } };
+    expect(getWindowDisplayName(win, cache)).toBe('GitHub');
+  });
+});
+
+describe('refreshUI fetches cached window names', () => {
+  let mockContainer;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    setContainer(null);
+    mockDocument.querySelectorAll.mockReturnValue([]);
+  });
+
+  test('should call chrome.runtime.sendMessage with getWindowNames action', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true, windowNames: {} });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    expect(mockChrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { action: 'getWindowNames' },
+      expect.any(Function)
+    );
+  });
+
+  test('should use cached name for window when cache has entry', async () => {
+    // Set up mock to return cached window names
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({
+        success: true,
+        windowNames: {
+          '42': { name: 'My Project', urlFingerprint: 'github.com' }
+        }
+      });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    // Track what textContent is set on span elements
+    const textContents = [];
+    mockDocument.createElement.mockImplementation((tag) => ({
+      className: '',
+      classList: {
+        add: jest.fn(),
+        toggle: jest.fn()
+      },
+      style: {},
+      textContent: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn(),
+      set textContent(val) { textContents.push(val); this._textContent = val; },
+      get textContent() { return this._textContent || ''; }
+    }));
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 42, tabs: [{ title: 'GitHub Repo', groupId: -1, index: 0 }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // The window title span should have the cached name
+    // (tab title 'GitHub Repo' may still appear as a tab element's text)
+    expect(textContents).toContain('My Project');
+  });
+
+  test('should handle sendMessage returning success but missing windowNames', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true }); // no windowNames property
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb({ success: true, windows: [] });
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    // Should not throw, should use empty cache
+    await expect(refreshUI()).resolves.toBeUndefined();
+  });
+
+  test('should handle sendMessage failure gracefully and fall back to generated names', async () => {
+    // Simulate runtime.sendMessage failure
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: false, error: 'No handler' });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ title: 'Test Tab', groupId: -1, index: 0 }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    // Should not throw
+    await expect(refreshUI()).resolves.toBeUndefined();
+  });
+
+  test('should handle sendMessage throwing an exception gracefully', async () => {
+    // Simulate runtime.sendMessage throwing (e.g., extension context invalidated)
+    mockChrome.runtime.sendMessage.mockImplementation(() => {
+      throw new Error('Extension context invalidated');
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb({ success: true, windows: [] });
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    // Should not throw, should use empty cache
+    await expect(refreshUI()).resolves.toBeUndefined();
+  });
+
+  test('should handle sendNativeMessage throwing an exception gracefully', async () => {
+    // Simulate runtime.sendNativeMessage throwing
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true, windowNames: {} });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation(() => {
+      throw new Error('Native messaging not supported');
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    // Should not throw, should treat native host as not installed
+    await expect(refreshUI()).resolves.toBeUndefined();
+  });
+});
+
+describe('Setup instructions link', () => {
+  let mockContainer;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    setContainer(null);
+    mockDocument.querySelectorAll.mockReturnValue([]);
+  });
+
+  test('should show setup link when native host is not installed', async () => {
+    // sendMessage returns cached names fine
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true, windowNames: {} });
+    });
+    // sendNativeMessage returns an error (native host not installed)
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined); // undefined response = error / not installed
+    });
+
+    // Track elements appended to container
+    const appendedClassNames = [];
+    mockContainer.appendChild.mockImplementation((el) => {
+      if (el && el.className) appendedClassNames.push(el.className);
+    });
+
+    mockDocument.createElement.mockImplementation((tag) => ({
+      className: '',
+      classList: {
+        add: jest.fn(),
+        toggle: jest.fn()
+      },
+      style: {},
+      textContent: '',
+      href: '',
+      target: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn()
+    }));
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      expect.any(Function)
+    );
+    // Should have appended a setup-link element
+    expect(appendedClassNames).toContain('setup-link');
+  });
+
+  test('should not show setup link when native host is installed', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true, windowNames: {} });
+    });
+    // sendNativeMessage returns a valid response (native host installed)
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb({ success: true, windows: [] });
+    });
+
+    const appendedClassNames = [];
+    mockContainer.appendChild.mockImplementation((el) => {
+      if (el && el.className) appendedClassNames.push(el.className);
+    });
+
+    mockDocument.createElement.mockImplementation((tag) => ({
+      className: '',
+      classList: {
+        add: jest.fn(),
+        toggle: jest.fn()
+      },
+      style: {},
+      textContent: '',
+      href: '',
+      target: '',
+      appendChild: jest.fn(),
+      addEventListener: jest.fn()
+    }));
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Should NOT have appended a setup-link element
+    expect(appendedClassNames).not.toContain('setup-link');
   });
 });
