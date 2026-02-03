@@ -4,6 +4,7 @@
   "description": "A simple expandable list of current tab groups and their window names.",
   "main": "popup.js",
   "scripts": {
+    "build:extension": "node scripts/build-extension.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
