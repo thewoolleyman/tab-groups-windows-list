@@ -1,3 +1,27 @@
+## MANDATORY: Agentic Layer vs Application Layer Boundary
+
+This project has TWO distinct layers. **Violating this boundary is a blocking defect.**
+
+### Agentic Layer (`adws/`)
+The workflow engine. Contains ONLY: pipeline engine, steps, workflows, commands,
+hooks, io_ops boundary, dispatchers, and their tests. This code orchestrates
+AI-driven development workflows. It is application-agnostic.
+
+### Application Layer (project root)
+The actual product. Contains: Chrome extension (`popup.js`, `background.js`,
+`manifest.json`), native messaging host (`native-host/`), application tests
+(`tests/`), build scripts (`scripts/`), store assets, icons.
+
+### The Rule
+**NEVER put application code in `adws/`.** Before adding ANY code to `adws/`, ask:
+- Does this code orchestrate AI agent workflows? If no, it doesn't belong.
+- Is this a pipeline step the engine executes? If no, it doesn't belong.
+- Would this code exist if this were a different application? If no, it doesn't belong.
+
+Read `adws/README_AGENTIC_VS_APPLICATION.md` for the complete boundary definition.
+
+---
+
 ## MANDATORY: TDD (Red-Green-Refactor)
 
 ALL code in this project MUST be developed using strict TDD:
