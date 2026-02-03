@@ -11,7 +11,7 @@
  * 6. Exposing a message API for popup.js
  */
 
-const NATIVE_HOST_NAME = 'com.pbjtime.tab_groups_windows_list';
+const NATIVE_HOST_NAME = 'com.tabgroups.window_namer';
 const JACCARD_THRESHOLD = 0.6;
 
 /**

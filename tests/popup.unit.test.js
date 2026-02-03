@@ -1797,6 +1797,44 @@ describe('refreshUI fetches cached window names', () => {
   });
 });
 
+describe('Native host name consistency in popup', () => {
+  let mockContainer;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    setContainer(null);
+    mockDocument.querySelectorAll.mockReturnValue([]);
+  });
+
+  test('should probe native host using com.tabgroups.window_namer', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((_msg, cb) => {
+      cb({ success: true, windowNames: {} });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // The native host probe must use the correct name that matches
+    // what install.sh and installer.py register
+    expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalledWith(
+      'com.tabgroups.window_namer',
+      expect.any(Object),
+      expect.any(Function)
+    );
+  });
+});
+
 describe('Setup instructions link', () => {
   let mockContainer;
 

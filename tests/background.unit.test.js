@@ -146,6 +146,18 @@ beforeEach(() => {
 });
 
 // =============================================================
+// 0. Native host name consistency
+// =============================================================
+
+describe('native host name consistency', () => {
+  test('NATIVE_HOST_NAME should match the installer manifest name', () => {
+    // The native messaging host is registered as 'com.tabgroups.window_namer'
+    // by install.sh and installer.py. background.js must use the same name.
+    expect(background.NATIVE_HOST_NAME).toBe('com.tabgroups.window_namer');
+  });
+});
+
+// =============================================================
 // 1. Module exports and utility functions
 // =============================================================
 
@@ -365,7 +377,7 @@ describe('fetchAndCacheWindowNames', () => {
     await background.fetchAndCacheWindowNames();
 
     expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalledWith(
-      'com.pbjtime.tab_groups_windows_list',
+      'com.tabgroups.window_namer',
       { action: 'get_window_names' },
       expect.any(Function),
     );

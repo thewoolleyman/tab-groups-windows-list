@@ -137,7 +137,7 @@ async function refreshUI() {
     try {
       nativeHostInstalled = await new Promise((resolve) => {
         chrome.runtime.sendNativeMessage(
-          'com.pbjtime.tab_groups_windows_list',
+          'com.tabgroups.window_namer',
           { action: 'ping' },
           (response) => {
             resolve(!!response);
