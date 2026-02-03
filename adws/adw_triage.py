@@ -1,14 +1,36 @@
+#!/usr/bin/env python3
 """Triage workflow for self-healing failure recovery (FR48).
 
 Polls Beads for issues with ADWS_FAILED metadata and evaluates
 each through a three-tier escalation model:
   Tier 1: Automatic retry with exponential backoff
-  Tier 2: AI triage agent (stub: escalates to Tier 3)
+  Tier 2: AI triage agent analysis
   Tier 3: Human escalation (tags needs_human)
+
+Usage:
+    uv run adws/adw_triage.py                          # Run one triage cycle
+    uv run adws/adw_triage.py --poll                   # Continuous triage loop
+    uv run adws/adw_triage.py --dry-run                # Show failed issues
+    uv run adws/adw_triage.py --poll --poll-interval 120   # Triage every 2 min
+    uv run adws/adw_triage.py --poll --max-cycles 3    # Run exactly 3 cycles
+
+Examples:
+    # Start the autonomous triage loop in the background
+    ./scripts/adw-triage.sh --poll &
+
+    # Check what failed issues exist without taking action
+    ./scripts/adw-triage.sh --dry-run
 
 NFR19: Never reads BMAD files. Only Beads issue data.
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# When run as a script, add the project root to sys.path so that
+# absolute imports like "from adws.adw_modules..." resolve correctly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -611,3 +633,69 @@ def run_triage_loop(
         io_ops.sleep_seconds(poll_interval_seconds)
 
     return results
+
+
+# --- CLI Entry Point ---
+
+import click  # noqa: E402
+
+
+@click.command()
+@click.option("--poll", is_flag=True, help="Continuous triage loop")
+@click.option(
+    "--poll-interval",
+    default=300,
+    help="Seconds between triage cycles (default: 300)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show failed issues without taking action",
+)
+@click.option(
+    "--max-cycles",
+    default=None,
+    type=int,
+    help="Max triage cycles (default: unlimited in --poll mode, 1 otherwise)",
+)
+def main(
+    poll: bool,
+    poll_interval: int,
+    dry_run: bool,
+    max_cycles: int | None,
+) -> None:
+    """Poll Beads for failed issues and run triage."""
+    if dry_run:
+        io_ops.write_stderr("Dry-run mode: showing failed issues")
+        poll_result = poll_failed_issues()
+        if isinstance(poll_result, IOFailure):
+            err = unsafe_perform_io(poll_result.failure())
+            io_ops.write_stderr(f"Poll failed: {err.message}")
+            sys.exit(1)
+        candidates = unsafe_perform_io(poll_result.unwrap())
+        if not candidates:
+            io_ops.write_stderr("No failed issues found")
+        else:
+            for c in candidates:
+                io_ops.write_stderr(
+                    f"  Failed: {c.issue_id}"
+                    f" (attempt {c.metadata.attempt},"
+                    f" {c.metadata.error_class})"
+                )
+        return
+
+    cycles = max_cycles
+    if cycles is None and not poll:
+        cycles = 1
+
+    results = run_triage_loop(
+        poll_interval_seconds=float(poll_interval),
+        max_cycles=cycles,
+    )
+    any_errors = any(r.errors for r in results)
+    if any_errors:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

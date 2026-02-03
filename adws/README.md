@@ -31,6 +31,66 @@ adws/                           # AGENTIC LAYER (this directory)
 +-- adw_trigger_cron.py         # Beads cron trigger
 ```
 
+## Running ADWS Scripts
+
+The three top-level Python scripts are directly executable with `uv run`.
+Wrapper scripts under `scripts/` provide convenient aliases.
+
+### Cron Trigger (`adw_trigger_cron.py`)
+
+Polls Beads for ready issues and dispatches workflows autonomously.
+
+```bash
+uv run adws/adw_trigger_cron.py --dry-run              # Preview ready issues
+uv run adws/adw_trigger_cron.py                        # Run one poll cycle
+uv run adws/adw_trigger_cron.py --poll                 # Continuous polling (60s)
+uv run adws/adw_trigger_cron.py --poll --poll-interval 30  # Custom interval
+# Or via wrapper:
+./scripts/adw-trigger-cron.sh --poll
+```
+
+### Triage (`adw_triage.py`)
+
+Polls for failed issues and runs three-tier escalation (auto-retry, AI triage, human).
+
+```bash
+uv run adws/adw_triage.py --dry-run                    # Preview failed issues
+uv run adws/adw_triage.py                              # Run one triage cycle
+uv run adws/adw_triage.py --poll                       # Continuous triage (300s)
+# Or via wrapper:
+./scripts/adw-triage.sh --poll
+```
+
+### Dispatch (`adw_dispatch.py`)
+
+Dispatches a workflow for a specific Beads issue. Typically called
+internally by `adw_trigger_cron.py` — direct use is for testing or manual dispatch.
+
+```bash
+uv run adws/adw_dispatch.py --list                     # List dispatchable workflows
+uv run adws/adw_dispatch.py --issue=beads-abc123       # Dispatch for an issue
+# Or via wrapper:
+./scripts/adw-dispatch.sh --list
+```
+
+### Data Flow
+
+```
+BMAD Story → /convert-stories-to-beads → Beads Issue (tagged {workflow_name})
+                                              ↓
+                                    adw_trigger_cron polls
+                                              ↓
+                                    adw_dispatch validates + executes
+                                        ↓               ↓
+                                    Success          Failure
+                                    bd close      tag ADWS_FAILED
+                                                      ↓
+                                              adw_triage polls
+                                              ↓       ↓       ↓
+                                          Tier 1   Tier 2   Tier 3
+                                          retry    AI fix   human
+```
+
 ## What Belongs Here
 
 - Workflow definitions (declarative step sequences)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Cron trigger for autonomous workflow execution (FR21, FR22).
 
 Polls Beads for open issues with dispatchable workflow tags,
@@ -5,9 +6,30 @@ applies the dispatch guard to exclude failed/needs-human
 issues, and dispatches each ready issue sequentially via
 dispatch_and_execute from Story 7.2.
 
+Usage:
+    uv run adws/adw_trigger_cron.py                        # Process one cycle
+    uv run adws/adw_trigger_cron.py --poll                 # Continuous polling
+    uv run adws/adw_trigger_cron.py --dry-run              # Show what would run
+    uv run adws/adw_trigger_cron.py --poll --poll-interval 30  # Poll every 30s
+    uv run adws/adw_trigger_cron.py --poll --max-cycles 5  # Run exactly 5 cycles
+
+Examples:
+    # Start the autonomous trigger in the background
+    ./scripts/adw-trigger-cron.sh --poll &
+
+    # Check what issues are ready without dispatching
+    ./scripts/adw-trigger-cron.sh --dry-run
+
 NFR19: Never reads BMAD files. Only Beads issue data.
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# When run as a script, add the project root to sys.path so that
+# absolute imports like "from adws.adw_modules..." resolve correctly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -254,3 +276,65 @@ def run_trigger_loop(
         io_ops.sleep_seconds(poll_interval_seconds)
 
     return results
+
+
+# --- CLI Entry Point ---
+
+import click  # noqa: E402
+
+
+@click.command()
+@click.option("--poll", is_flag=True, help="Continuous polling mode")
+@click.option(
+    "--poll-interval",
+    default=60,
+    help="Seconds between polls (default: 60)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be processed without executing",
+)
+@click.option(
+    "--max-cycles",
+    default=None,
+    type=int,
+    help="Max poll cycles (default: unlimited in --poll mode, 1 otherwise)",
+)
+def main(
+    poll: bool,
+    poll_interval: int,
+    dry_run: bool,
+    max_cycles: int | None,
+) -> None:
+    """Poll Beads for ready issues and dispatch workflows."""
+    if dry_run:
+        io_ops.write_stderr("Dry-run mode: showing ready issues")
+        poll_result = poll_ready_issues()
+        if isinstance(poll_result, IOFailure):
+            err = unsafe_perform_io(poll_result.failure())
+            io_ops.write_stderr(f"Poll failed: {err.message}")
+            sys.exit(1)
+        ready = unsafe_perform_io(poll_result.unwrap())
+        if not ready:
+            io_ops.write_stderr("No ready issues found")
+        else:
+            for issue_id in ready:
+                io_ops.write_stderr(f"  Ready: {issue_id}")
+        return
+
+    cycles = max_cycles
+    if cycles is None and not poll:
+        cycles = 1
+
+    results = run_trigger_loop(
+        poll_interval_seconds=float(poll_interval),
+        max_cycles=cycles,
+    )
+    any_errors = any(r.errors for r in results)
+    if any_errors:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

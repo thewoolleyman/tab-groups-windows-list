@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Workflow dispatch policy enforcer (FR19, Decision 5).
 
 Reads a Beads issue, extracts the workflow tag, validates
@@ -10,9 +11,31 @@ load_workflow() function in workflows/__init__.py is a
 pure lookup that does NOT check dispatchable. Policy
 enforcement lives here.
 
+Usage:
+    uv run adws/adw_dispatch.py --issue=beads-abc123   # Dispatch for an issue
+    uv run adws/adw_dispatch.py -i beads-abc123        # Short form
+    uv run adws/adw_dispatch.py --list                 # List dispatchable workflows
+
+Examples:
+    # Dispatch a workflow for a specific Beads issue
+    ./scripts/adw-dispatch.sh --issue=tab-dqn
+
+    # See what workflows can be auto-dispatched
+    ./scripts/adw-dispatch.sh --list
+
+Note: This is typically called internally by adw_trigger_cron.py.
+Direct invocation is useful for testing or manual dispatch.
+
 NFR19: Never reads BMAD files. Only Beads issue data.
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# When run as a script, add the project root to sys.path so that
+# absolute imports like "from adws.adw_modules..." resolve correctly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataclasses import dataclass
 
@@ -272,3 +295,58 @@ def dispatch_and_execute(
 
     ctx = unsafe_perform_io(dispatch_result.unwrap())
     return execute_dispatched_workflow(ctx)
+
+
+# --- CLI Entry Point ---
+
+import click  # noqa: E402
+
+
+@click.command()
+@click.option(
+    "--issue",
+    "-i",
+    help="Beads issue ID to dispatch",
+)
+@click.option(
+    "--list",
+    "list_wf",
+    is_flag=True,
+    help="List available dispatchable workflows",
+)
+def main(issue: str | None, list_wf: bool) -> None:
+    """Dispatch a workflow based on a Beads issue tag."""
+    if list_wf:
+        from adws.workflows import (  # noqa: PLC0415
+            list_dispatchable_workflows,
+        )
+
+        workflows = list_dispatchable_workflows()
+        if not workflows:
+            io_ops.write_stderr("No dispatchable workflows found")
+        else:
+            for name in workflows:
+                io_ops.write_stderr(f"  {name}")
+        return
+
+    if not issue:
+        msg = "Please specify --issue or use --list"
+        raise click.UsageError(msg)
+
+    result = dispatch_and_execute(issue)
+    if isinstance(result, IOFailure):
+        err = unsafe_perform_io(result.failure())
+        io_ops.write_stderr(f"Dispatch failed: {err.message}")
+        sys.exit(1)
+
+    der = unsafe_perform_io(result.unwrap())
+    io_ops.write_stderr(
+        f"{'Success' if der.success else 'Failed'}:"
+        f" {der.summary}"
+    )
+    if not der.success:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
