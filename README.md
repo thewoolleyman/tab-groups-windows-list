@@ -10,7 +10,8 @@ A simple Chrome extension that provides a 3-level expandable list of your curren
 
 - **3-Level Hierarchy**: View all your windows, tab groups, and tabs in a nested, expandable list.
 - **Color Matching**: Automatically matches the color of your tab groups for easy identification.
-- **Lightweight**: Minimalist design with no background processes.
+- **Custom Window Names** (macOS): Automatically displays OS-level window names set via AppleScript/JXA. Requires a native messaging host (see below).
+- **Lightweight**: Minimalist design, service worker only activates when native host is installed.
 
 ## Installation (Manual)
 
@@ -19,6 +20,40 @@ A simple Chrome extension that provides a 3-level expandable list of your curren
 3. Open Chrome and go to `chrome://extensions/`.
 4. Enable **Developer mode** in the top right corner.
 5. Click **Load unpacked** and select the extracted folder.
+
+## Window Name Sync (macOS)
+
+The Chrome extension API does not expose window names. This extension includes an optional native messaging host that reads OS-level window titles via macOS JXA (JavaScript for Automation) and syncs them to the extension.
+
+### How it works
+
+1. A Python native messaging host runs on-demand, querying Brave/Chrome window names via `osascript`
+2. A background service worker caches window names and matches them to extension windows by screen bounds
+3. On browser restart, windows are re-matched using Jaccard similarity of URL hostname fingerprints
+
+### Install the native host
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thewoolleyman/tab-groups-windows-list/master/native-host/install.sh | bash
+```
+
+Or from a local clone:
+
+```bash
+npm run install:native-host
+```
+
+The installer detects Chrome, Brave, Edge, and Chromium, and places the native messaging manifest in the correct directory for each. On non-macOS systems it prints a message that window name sync is macOS only.
+
+### Setting a custom window name
+
+Use AppleScript or JXA to set a window name:
+
+```bash
+osascript -e 'tell application "Brave Browser" to set name of window 1 to "My Project"'
+```
+
+The extension detects when a window name differs from the active tab title and displays the custom name.
 
 ## CI/CD Pipeline for Developers
 
