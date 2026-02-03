@@ -329,6 +329,153 @@ describe('matchWindowsByBounds', () => {
 });
 
 // =============================================================
+// 3b. matchWindowsByBounds - title-based matching (realistic macOS)
+// =============================================================
+
+describe('matchWindowsByBounds - title-based matching', () => {
+  // Shared bounds that simulate maximized macOS windows (common real-world scenario)
+  const SHARED_BOUNDS = { x: 0, y: 33, width: 1728, height: 1084 };
+
+  test('should match 3 windows sharing identical bounds via activeTabTitle', () => {
+    const nativeWindows = [
+      { name: 'Dev Window', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'GitHub - repo' },
+      { name: 'Research', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'Google Scholar' },
+      { name: 'Comms', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'Slack | general' },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Slack | general', active: true },
+        { title: 'Discord', active: false },
+      ]},
+      { id: 2, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'GitHub - repo', active: true },
+        { title: 'VS Code', active: false },
+      ]},
+      { id: 3, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Google Scholar', active: true },
+        { title: 'Wikipedia', active: false },
+      ]},
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    expect(result).toHaveLength(3);
+    expect(result).toContainEqual({ windowId: 2, name: 'Dev Window', hasCustomName: true });
+    expect(result).toContainEqual({ windowId: 3, name: 'Research', hasCustomName: true });
+    expect(result).toContainEqual({ windowId: 1, name: 'Comms', hasCustomName: true });
+  });
+
+  test('should match mix of shared + unique bounds correctly', () => {
+    const nativeWindows = [
+      { name: 'Maximized A', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'Tab A' },
+      { name: 'Maximized B', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'Tab B' },
+      { name: 'Side Window', bounds: { x: 900, y: 33, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'Tab C' },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Tab B', active: true },
+      ]},
+      { id: 2, left: 900, top: 33, width: 800, height: 600, tabs: [
+        { title: 'Tab C', active: true },
+      ]},
+      { id: 3, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Tab A', active: true },
+      ]},
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    expect(result).toHaveLength(3);
+    expect(result).toContainEqual({ windowId: 3, name: 'Maximized A', hasCustomName: true });
+    expect(result).toContainEqual({ windowId: 1, name: 'Maximized B', hasCustomName: true });
+    expect(result).toContainEqual({ windowId: 2, name: 'Side Window', hasCustomName: true });
+  });
+
+  test('should use bounds as tiebreaker when activeTabTitle matches multiple windows', () => {
+    // Two native windows with same activeTabTitle but different bounds
+    const nativeWindows = [
+      { name: 'Left GitHub', bounds: { x: 0, y: 0, width: 960, height: 1080 }, hasCustomName: true, activeTabTitle: 'GitHub' },
+      { name: 'Right GitHub', bounds: { x: 960, y: 0, width: 960, height: 1080 }, hasCustomName: true, activeTabTitle: 'GitHub' },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 960, top: 0, width: 960, height: 1080, tabs: [
+        { title: 'GitHub', active: true },
+      ]},
+      { id: 2, left: 0, top: 0, width: 960, height: 1080, tabs: [
+        { title: 'GitHub', active: true },
+      ]},
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    expect(result).toHaveLength(2);
+    expect(result).toContainEqual({ windowId: 2, name: 'Left GitHub', hasCustomName: true });
+    expect(result).toContainEqual({ windowId: 1, name: 'Right GitHub', hasCustomName: true });
+  });
+
+  // --- Edge cases ---
+
+  test('should fall back to bounds-only when native window missing activeTabTitle', () => {
+    const nativeWindows = [
+      { name: 'Legacy Window', bounds: { x: 0, y: 0, width: 1920, height: 1080 }, hasCustomName: true },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 0, width: 1920, height: 1080, tabs: [
+        { title: 'Some Tab', active: true },
+      ]},
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    expect(result).toEqual([
+      { windowId: 1, name: 'Legacy Window', hasCustomName: true },
+    ]);
+  });
+
+  test('should fall back to bounds-only when extension window has no tabs array', () => {
+    const nativeWindows = [
+      { name: 'Window', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'My Tab' },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 0, width: 800, height: 600 },
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    expect(result).toEqual([
+      { windowId: 1, name: 'Window', hasCustomName: true },
+    ]);
+  });
+
+  test('should fall back to bounds-only when extension window has no active tab', () => {
+    const nativeWindows = [
+      { name: 'Window', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'My Tab' },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [
+        { title: 'Tab 1', active: false },
+        { title: 'Tab 2', active: false },
+      ]},
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    expect(result).toEqual([
+      { windowId: 1, name: 'Window', hasCustomName: true },
+    ]);
+  });
+
+  test('should prevent one extension window from matching twice (dedup)', () => {
+    // Two native windows both want the same extension window
+    const nativeWindows = [
+      { name: 'First', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'Unique Tab' },
+      { name: 'Second', bounds: SHARED_BOUNDS, hasCustomName: true, activeTabTitle: 'Unique Tab' },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Unique Tab', active: true },
+      ]},
+      { id: 2, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Other Tab', active: true },
+      ]},
+    ];
+    const result = background.matchWindowsByBounds(nativeWindows, extensionWindows);
+    // Extension window 1 should only be matched once
+    const idsMatched = result.map(r => r.windowId);
+    const uniqueIds = new Set(idsMatched);
+    expect(uniqueIds.size).toBe(idsMatched.length);
+  });
+});
+
+// =============================================================
 // 4. jaccardSimilarity
 // =============================================================
 
@@ -768,6 +915,14 @@ describe('message API for popup.js', () => {
     };
     mockChrome.storage.local.get.mockResolvedValue(storageData);
 
+    // Handler now calls fetchAndCacheWindowNames() first, so mock native host
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        callback({ success: true, windows: [] });
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+
     // Use listener captured at module load time
     const listener = initialListeners.runtimeMessage[0];
 
@@ -781,8 +936,8 @@ describe('message API for popup.js', () => {
     // Should return true to indicate async response
     expect(result).toBe(true);
 
-    // Wait for async processing
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Wait for async processing (fetch + cache read)
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(sendResponse).toHaveBeenCalledWith({
       success: true,
@@ -790,6 +945,53 @@ describe('message API for popup.js', () => {
         '1': { name: 'Dev Window', urlFingerprint: 'github.com' },
       },
     });
+  });
+
+  test('should trigger fresh fetchAndCacheWindowNames before returning cache', async () => {
+    // Simulate race condition: cache is empty, but native host has data
+    storageData = {};
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    // Native host will return a window with custom name
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        callback({
+          success: true,
+          windows: [
+            { name: 'My Dev Window', bounds: { x: 0, y: 0, width: 1920, height: 1080 }, hasCustomName: true, activeTabTitle: 'GitHub' },
+          ],
+        });
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 42, left: 0, top: 0, width: 1920, height: 1080, tabs: [
+        { url: 'https://github.com', title: 'GitHub', active: true },
+      ]},
+    ]);
+
+    const listener = initialListeners.runtimeMessage[0];
+    const sendResponse = jest.fn();
+    listener(
+      { action: 'getWindowNames' },
+      { tab: { id: 1 } },
+      sendResponse,
+    );
+
+    // Wait for async processing (fetch + cache read)
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The handler should have fetched fresh data from native host
+    expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalled();
+
+    // Response should contain the freshly fetched window name
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        windowNames: expect.objectContaining({
+          '42': expect.objectContaining({ name: 'My Dev Window' }),
+        }),
+      }),
+    );
   });
 
   test('should respond with error for unknown action', async () => {

@@ -41,10 +41,11 @@ function computeUrlFingerprint(tabs) {
 }
 
 /**
- * Match native host windows to extension windows by comparing bounds.
+ * Match native host windows to extension windows using a scoring algorithm.
+ * Primary: active tab title match (2 pts). Secondary: bounds match (1 pt).
  * Only returns matches for windows where hasCustomName is true.
- * @param {Array} nativeWindows - Windows from native host with {name, bounds, hasCustomName}
- * @param {Array} extensionWindows - Windows from chrome.windows.getAll with {id, left, top, width, height}
+ * @param {Array} nativeWindows - Windows from native host with {name, bounds, hasCustomName, activeTabTitle?}
+ * @param {Array} extensionWindows - Windows from chrome.windows.getAll with {id, left, top, width, height, tabs?}
  * @returns {Array} - Array of {windowId, name, hasCustomName} for matched windows
  */
 function matchWindowsByBounds(nativeWindows, extensionWindows) {
@@ -52,6 +53,7 @@ function matchWindowsByBounds(nativeWindows, extensionWindows) {
   if (!nativeWindows || !extensionWindows) return [];
 
   const matches = [];
+  const usedExtensionIds = new Set();
 
   for (const native of nativeWindows) {
     if (!native.hasCustomName) continue;
@@ -60,20 +62,45 @@ function matchWindowsByBounds(nativeWindows, extensionWindows) {
     /* istanbul ignore next - defensive null guard */
     if (!bounds) continue;
 
+    let bestExt = null;
+    let bestScore = 0;
+
     for (const ext of extensionWindows) {
+      if (usedExtensionIds.has(ext.id)) continue;
+
+      let score = 0;
+
+      // Bounds match: 1 point
       if (
         bounds.x === ext.left &&
         bounds.y === ext.top &&
         bounds.width === ext.width &&
         bounds.height === ext.height
       ) {
-        matches.push({
-          windowId: ext.id,
-          name: native.name,
-          hasCustomName: native.hasCustomName,
-        });
-        break;
+        score += 1;
       }
+
+      // Active tab title match: 2 points
+      if (native.activeTabTitle && ext.tabs) {
+        const activeTab = ext.tabs.find((t) => t.active);
+        if (activeTab && activeTab.title === native.activeTabTitle) {
+          score += 2;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestExt = ext;
+      }
+    }
+
+    if (bestExt && bestScore > 0) {
+      usedExtensionIds.add(bestExt.id);
+      matches.push({
+        windowId: bestExt.id,
+        name: native.name,
+        hasCustomName: native.hasCustomName,
+      });
     }
   }
 
@@ -318,7 +345,12 @@ chrome.tabs.onDetached.addListener(async (_tabId, detachInfo) => {
 // Message API for popup.js
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'getWindowNames') {
-    chrome.storage.local.get('windowNames').then((stored) => {
+    // Always fetch fresh data from native host before returning,
+    // to avoid race condition where popup reads stale/empty cache
+    // before the service worker's startup fetch has completed.
+    fetchAndCacheWindowNames().then(() => {
+      return chrome.storage.local.get('windowNames');
+    }).then((stored) => {
       /* istanbul ignore next - defensive fallback for missing storage key */
       const names = stored.windowNames || {};
       sendResponse({
