@@ -1,17 +1,5 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
-
-## Quick Reference
-
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
-
 ## MANDATORY: Agentic Layer vs Application Layer Boundary
 
 This project has TWO distinct layers. **Violating this boundary is a blocking defect.**
@@ -73,6 +61,20 @@ Testing stack:
 
 ### THE RULE:
 If a story's acceptance criteria can fail, a test MUST catch it.
+
+---
+
+## Beads Quick Reference
+
+This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --status in_progress  # Claim work
+bd close <id>         # Complete work
+bd sync               # Sync with git
+```
 
 ---
 
