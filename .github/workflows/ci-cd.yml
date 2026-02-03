@@ -13,11 +13,62 @@ env:
 
 jobs:
   # =============================================================================
+  # Stage 0: Preflight - Check version validity and auto-recover from stuck state
+  # =============================================================================
+  preflight:
+    name: Preflight Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check version and auto-bump if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(grep -oP '"version":\s*"\K[^"]+' manifest.json)
+          echo "Detected version: $VERSION"
+          
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "::notice title=Version Conflict::Release v$VERSION already exists. Initiating auto-recovery."
+            
+            # Calculate next version
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            NEXT_PATCH=$((PATCH + 1))
+            NEXT_VERSION="$MAJOR.$MINOR.$NEXT_PATCH"
+            
+            echo "Bumping version: $VERSION -> $NEXT_VERSION"
+            
+            # Update manifest.json
+            sed -i "s/\"version\": \"$VERSION\"/\"version\": \"$NEXT_VERSION\"/" manifest.json
+            
+            # Configure git
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            
+            # Commit and push
+            # IMPORTANT: Do NOT use [skip ci] so the new commit triggers a fresh run
+            git add manifest.json
+            git commit -m "chore: Auto-bump version to $NEXT_VERSION (recovery preflight)"
+            git push origin master
+            
+            echo "::warning::Version bumped to $NEXT_VERSION. Cancelling current run to allow new run to proceed."
+            gh run cancel ${{ github.run_id }}
+            sleep 30
+          else
+            echo "Version v$VERSION is clear (no existing release). Proceeding."
+          fi
+
+  # =============================================================================
   # Stage 1: Build - Package the extension and extract version
   # =============================================================================
   build:
     name: Build Extension
     runs-on: ubuntu-latest
+    needs: preflight
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
