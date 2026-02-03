@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - master
+  workflow_dispatch:
 
 env:
   EXTENSION_ID: gialhfelganamiclidkigjnjdkdbohcb
@@ -54,6 +55,9 @@ jobs:
             git add manifest.json
             git commit -m "chore: Auto-bump version to $NEXT_VERSION (recovery preflight)"
             git push origin master
+            
+            echo "::notice::Triggering new workflow run for $NEXT_VERSION..."
+            gh workflow run ci-cd.yml --ref master
             
             echo "::warning::Version bumped to $NEXT_VERSION. Cancelling current run to allow new run to proceed."
             gh run cancel ${{ github.run_id }}
