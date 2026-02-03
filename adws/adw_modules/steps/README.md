@@ -2,7 +2,7 @@
 
 > **AGENTIC LAYER ONLY.** Steps are workflow operations.
 > Application-specific logic does not belong here.
-> See [../../README_AGENTIC_VS_APPLICATION.md](../../README_AGENTIC_VS_APPLICATION.md).
+> See [AGENTIC_VS_APPLICATION.md](../../../AGENTIC_VS_APPLICATION.md).
 
 ## Overview
 

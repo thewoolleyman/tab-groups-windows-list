@@ -9,7 +9,7 @@
 > browser detection, UI components, or Chrome extension logic belong in the
 > APPLICATION LAYER (project root: `popup.js`, `background.js`, `native-host/`, `tests/`).
 >
-> See [README_AGENTIC_VS_APPLICATION.md](README_AGENTIC_VS_APPLICATION.md) for the
+> See [AGENTIC_VS_APPLICATION.md](../AGENTIC_VS_APPLICATION.md) for the
 > complete boundary definition.
 
 ## Architecture Overview
@@ -86,7 +86,7 @@ I/O Boundary (io_ops.py)      -- Single mock point for all external I/O
 
 ## Further Reading
 
-- [Agentic vs Application Layer](README_AGENTIC_VS_APPLICATION.md) -- boundary definition
+- [Agentic vs Application Layer](../AGENTIC_VS_APPLICATION.md) -- boundary definition
 - [Infrastructure Layer](adw_modules/README.md) -- engine, steps, io_ops
 - [Engine](adw_modules/engine/README.md) -- executor, combinators, types
 - [Steps](adw_modules/steps/README.md) -- pipeline step implementations

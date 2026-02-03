@@ -2,7 +2,7 @@
 
 > **AGENTIC LAYER ONLY.** Workflows define what the engine executes.
 > Application-specific logic does not belong here.
-> See [../README_AGENTIC_VS_APPLICATION.md](../README_AGENTIC_VS_APPLICATION.md).
+> See [AGENTIC_VS_APPLICATION.md](../../AGENTIC_VS_APPLICATION.md).
 
 ## What is a Workflow?
 

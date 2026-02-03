@@ -1,7 +1,7 @@
 # Workflow Engine (`engine/`)
 
 > **AGENTIC LAYER ONLY.** This directory contains the workflow execution engine.
-> See [../../README_AGENTIC_VS_APPLICATION.md](../../README_AGENTIC_VS_APPLICATION.md).
+> See [AGENTIC_VS_APPLICATION.md](../../../AGENTIC_VS_APPLICATION.md).
 
 ## Overview
 

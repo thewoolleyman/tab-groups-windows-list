@@ -18,7 +18,7 @@ The actual product. Contains: Chrome extension (`popup.js`, `background.js`,
 - Is this a pipeline step the engine executes? If no, it doesn't belong.
 - Would this code exist if this were a different application? If no, it doesn't belong.
 
-Read `adws/README_AGENTIC_VS_APPLICATION.md` for the complete boundary definition.
+Read `AGENTIC_VS_APPLICATION.md` (project root) for the complete boundary definition.
 
 ---
 
