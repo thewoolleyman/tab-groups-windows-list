@@ -37,12 +37,13 @@ ignore = ["D", "COM812", "ISC001"]
 
 [tool.ruff.lint.per-file-ignores]
 "adws/tests/**/*.py" = ["S101", "PLR2004", "ANN", "ARG001"]
+"tests/**/*.py" = ["S101", "PLR2004", "ANN", "ARG001"]
 
 [tool.coverage.run]
 omit = ["adws/tests/conftest.py", "adws/tests/enemy/*"]
 
 [tool.pytest.ini_options]
-testpaths = ["adws/tests"]
+testpaths = ["adws/tests", "tests"]
 addopts = "--cov=adws --cov-report=term-missing --cov-fail-under=100 --cov-branch --strict-markers"
 markers = [
     "enemy: Enemy Unit Tests - REAL API calls through REAL SDK (require ANTHROPIC_API_KEY)",

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 INSTALL_SH = str(
-    Path(__file__).resolve().parents[3]
+    Path(__file__).resolve().parents[2]
     / "native-host"
     / "install.sh",
 )

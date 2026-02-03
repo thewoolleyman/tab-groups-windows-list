@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 _HOST_PY_SRC = (
-    Path(__file__).resolve().parents[3] / "native-host" / "host.py"
+    Path(__file__).resolve().parents[2] / "native-host" / "host.py"
 )
 
 
