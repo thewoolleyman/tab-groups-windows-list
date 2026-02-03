@@ -855,17 +855,19 @@ describe('refreshUI function', () => {
   });
 
   test('should handle API errors gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     setContainer(mockContainer);
     mockChrome.windows.getAll.mockRejectedValue(new Error('API Error'));
 
     await refreshUI();
 
     expect(mockContainer.innerHTML).toBe('<div class="empty-msg">Error loading windows.</div>');
+    expect(consoleSpy).toHaveBeenCalledWith('Error loading data:', expect.any(Error));
+    consoleSpy.mockRestore();
   });
 
   test('should render windows when data is returned', async () => {
-    // Reset mocks
-    jest.clearAllMocks();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockChrome.windows.getAll.mockResolvedValue([
       { id: 1, title: 'Test Window', tabs: [] }
     ]);
@@ -877,6 +879,7 @@ describe('refreshUI function', () => {
     // Verify createElement was called (to create window elements)
     expect(mockDocument.createElement).toHaveBeenCalledWith('div');
     expect(mockDocument.createElement).toHaveBeenCalledWith('span');
+    consoleSpy.mockRestore();
   });
 
   test('should preserve expansion state of windows', async () => {

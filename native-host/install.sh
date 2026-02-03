@@ -64,11 +64,9 @@ EOF
 # ------------------------------------------------------------------
 # Browser detection and manifest installation
 # ------------------------------------------------------------------
-declare -A BROWSERS
-BROWSERS["Google Chrome"]="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-BROWSERS["Brave Browser"]="$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
-BROWSERS["Microsoft Edge"]="$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
-BROWSERS["Chromium"]="$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
+# Parallel arrays instead of associative array (bash 3.2 compat)
+BROWSER_NAMES="Google Chrome|Brave Browser|Microsoft Edge|Chromium"
+BROWSER_DIRS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts|$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts|$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts|$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
 
 SUCCESS_COUNT=0
 FAIL_COUNT=0
@@ -77,11 +75,22 @@ SKIP_COUNT=0
 echo ""
 echo "Detecting installed browsers..."
 
-for BROWSER_NAME in "Google Chrome" "Brave Browser" "Microsoft Edge" "Chromium"; do
-    MANIFEST_DIR="${BROWSERS[$BROWSER_NAME]}"
+# Save and restore IFS for pipe-delimited splitting
+OLD_IFS="$IFS"
+IFS="|"
+set -f  # disable globbing during split
+NAMES_ARRAY=($BROWSER_NAMES)
+DIRS_ARRAY=($BROWSER_DIRS)
+set +f
+IFS="$OLD_IFS"
+
+i=0
+while [ $i -lt ${#NAMES_ARRAY[@]} ]; do
+    BROWSER_NAME="${NAMES_ARRAY[$i]}"
+    MANIFEST_DIR="${DIRS_ARRAY[$i]}"
     PARENT_DIR="$(dirname "$MANIFEST_DIR")"
 
-    if [[ -d "$PARENT_DIR" ]]; then
+    if [ -d "$PARENT_DIR" ]; then
         mkdir -p "$MANIFEST_DIR"
         if echo "$MANIFEST_JSON" > "$MANIFEST_DIR/$HOST_NAME.json"; then
             echo "  $BROWSER_NAME: OK"
@@ -93,6 +102,7 @@ for BROWSER_NAME in "Google Chrome" "Brave Browser" "Microsoft Edge" "Chromium";
     else
         SKIP_COUNT=$((SKIP_COUNT + 1))
     fi
+    i=$((i + 1))
 done
 
 # ------------------------------------------------------------------
