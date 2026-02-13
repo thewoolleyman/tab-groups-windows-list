@@ -15,6 +15,25 @@ const NATIVE_HOST_NAME = 'com.tabgroups.window_namer';
 const JACCARD_THRESHOLD = 0.6;
 
 /**
+ * Tagged logger for pipeline observability.
+ * All messages use [TGWL:<stage>] prefix for easy filtering.
+ * @param {string} stage - Pipeline stage identifier
+ * @param {...*} args - Arguments to log
+ */
+function tgwlLog(stage, ...args) {
+  console.log(`[TGWL:${stage}]`, ...args);
+}
+
+/**
+ * Tagged error logger for pipeline observability.
+ * @param {string} stage - Pipeline stage identifier
+ * @param {...*} args - Arguments to log
+ */
+function tgwlError(stage, ...args) {
+  console.error(`[TGWL:${stage}]`, ...args);
+}
+
+/**
  * Compute a URL fingerprint for a window's tabs.
  * Returns sorted unique hostnames joined with pipe.
  * @param {Array} tabs - Array of tab objects with url property
@@ -32,7 +51,7 @@ function computeUrlFingerprint(tabs) {
         hostnames.add(url.hostname);
       }
     } catch (_e) {
-      // Skip invalid URLs (about:blank, etc.)
+      // Skip invalid URLs (about:blank, etc.) - not an error
     }
   }
 
@@ -95,12 +114,15 @@ function matchWindowsByBounds(nativeWindows, extensionWindows) {
     }
 
     if (bestExt && bestScore > 0) {
+      tgwlLog('matching', `"${native.name}" -> ext ${bestExt.id} (score=${bestScore})`);
       usedExtensionIds.add(bestExt.id);
       matches.push({
         windowId: bestExt.id,
         name: native.name,
         hasCustomName: native.hasCustomName,
       });
+    } else {
+      tgwlLog('matching', `"${native.name}" -> no match (bestScore=${bestScore})`);
     }
   }
 
@@ -141,24 +163,36 @@ function jaccardSimilarity(fp1, fp2) {
  */
 async function fetchAndCacheWindowNames() {
   try {
+    tgwlLog('native-req', 'Sending get_window_names to', NATIVE_HOST_NAME);
     const nativeResponse = await new Promise((resolve) => {
       chrome.runtime.sendNativeMessage(
         NATIVE_HOST_NAME,
         { action: 'get_window_names' },
         (response) => {
           if (chrome.runtime.lastError || !response) {
+            tgwlError('native-res', 'Native host error:', chrome.runtime.lastError?.message || 'no response');
             resolve(null);
             return;
           }
+          tgwlLog('native-res', 'Received response:', JSON.stringify(response).substring(0, 500));
           resolve(response);
         },
       );
     });
 
-    if (!nativeResponse || !nativeResponse.success) return;
+    if (!nativeResponse || !nativeResponse.success) {
+      tgwlLog('native-res', 'No valid response, skipping match');
+      return;
+    }
 
     const extensionWindows = await chrome.windows.getAll({ populate: true });
+    tgwlLog('ext-windows', extensionWindows.map((w) => ({
+      id: w.id, left: w.left, top: w.top, width: w.width, height: w.height,
+      activeTabTitle: w.tabs?.find((t) => t.active)?.title, tabCount: w.tabs?.length,
+    })));
+
     const matched = matchWindowsByBounds(nativeResponse.windows, extensionWindows);
+    tgwlLog('match-result', `${matched.length} matches:`, JSON.stringify(matched));
 
     if (matched.length === 0) return;
 
@@ -179,10 +213,11 @@ async function fetchAndCacheWindowNames() {
       };
     }
 
+    tgwlLog('cache-write', 'Updating cache:', JSON.stringify(windowNames));
     await chrome.storage.local.set({ windowNames });
   /* istanbul ignore next - defensive catch for native host errors */
-  } catch (_e) {
-    // Silently handle errors - native host may not be installed
+  } catch (e) {
+    tgwlError('error', 'fetchAndCacheWindowNames failed:', e?.message || e);
   }
 }
 
@@ -209,8 +244,8 @@ async function updateUrlFingerprint(windowId) {
 
     await chrome.storage.local.set({ windowNames });
   /* istanbul ignore next - defensive catch for storage errors */
-  } catch (_e) {
-    // Silently handle errors
+  } catch (e) {
+    tgwlError('error', `updateUrlFingerprint(${windowId}) failed:`, e?.message || e);
   }
 }
 
@@ -222,6 +257,7 @@ async function handleStartupMatching() {
   try {
     const stored = await chrome.storage.local.get('windowNames');
     const windowNames = stored.windowNames || {};
+    tgwlLog('cache-read', 'Startup cache:', JSON.stringify(windowNames));
 
     // Collect closed entries
     const closedEntries = [];
@@ -231,7 +267,10 @@ async function handleStartupMatching() {
       }
     }
 
-    if (closedEntries.length === 0) return;
+    if (closedEntries.length === 0) {
+      tgwlLog('startup-match', 'No closed entries, skipping');
+      return;
+    }
 
     // Get current windows
     const currentWindows = await chrome.windows.getAll({ populate: true });
@@ -241,8 +280,12 @@ async function handleStartupMatching() {
       (w) => !windowNames[String(w.id)] || windowNames[String(w.id)].closed,
     );
 
-    if (unmatchedWindows.length === 0) return;
+    if (unmatchedWindows.length === 0) {
+      tgwlLog('startup-match', 'All windows already cached, skipping');
+      return;
+    }
 
+    tgwlLog('startup-match', `${closedEntries.length} closed entries, ${unmatchedWindows.length} unmatched windows`);
     const usedClosedIds = new Set();
 
     for (const win of unmatchedWindows) {
@@ -259,6 +302,8 @@ async function handleStartupMatching() {
           closed.urlFingerprint,
         );
 
+        tgwlLog('startup-match', `Window ${win.id} vs closed ${closed.id} ("${closed.name}"): Jaccard=${similarity.toFixed(3)}`);
+
         if (similarity > bestSimilarity && similarity >= JACCARD_THRESHOLD) {
           bestMatch = closed;
           bestSimilarity = similarity;
@@ -266,6 +311,7 @@ async function handleStartupMatching() {
       }
 
       if (bestMatch) {
+        tgwlLog('startup-match', `Matched window ${win.id} -> "${bestMatch.name}" (similarity=${bestSimilarity.toFixed(3)})`);
         // Assign the name from the closed entry to the current window
         windowNames[String(win.id)] = {
           name: bestMatch.name,
@@ -279,8 +325,8 @@ async function handleStartupMatching() {
 
     await chrome.storage.local.set({ windowNames });
   /* istanbul ignore next - defensive catch for startup errors */
-  } catch (_e) {
-    // Silently handle errors
+  } catch (e) {
+    tgwlError('error', 'handleStartupMatching failed:', e?.message || e);
   }
 }
 
@@ -300,12 +346,13 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
     const key = String(windowId);
 
     if (windowNames[key]) {
+      tgwlLog('cache-write', `Marking window ${windowId} as closed`);
       windowNames[key].closed = true;
       await chrome.storage.local.set({ windowNames });
     }
   /* istanbul ignore next - defensive catch for storage errors */
-  } catch (_e) {
-    // Silently handle errors
+  } catch (e) {
+    tgwlError('error', `onRemoved(${windowId}) failed:`, e?.message || e);
   }
 });
 
@@ -342,9 +389,139 @@ chrome.tabs.onDetached.addListener(async (_tabId, detachInfo) => {
   }
 });
 
+/**
+ * Run full diagnostic pipeline and return structured report.
+ * @returns {Promise<Object>} Diagnostic report
+ */
+async function runDiagnosis() {
+  const diagnosis = {
+    timestamp: new Date().toISOString(),
+    nativeHost: { name: NATIVE_HOST_NAME, reachable: false, error: null, rawResponse: null, windowCount: 0, customNameCount: 0 },
+    extensionWindows: [],
+    matching: { pairs: [], totalMatches: 0 },
+    cache: { before: {}, after: {} },
+  };
+
+  try {
+    // Read cache before
+    const storedBefore = await chrome.storage.local.get('windowNames');
+    diagnosis.cache.before = storedBefore.windowNames || {};
+
+    // Call native host
+    const nativeResponse = await new Promise((resolve) => {
+      chrome.runtime.sendNativeMessage(
+        NATIVE_HOST_NAME,
+        { action: 'get_window_names' },
+        (response) => {
+          if (chrome.runtime.lastError || !response) {
+            diagnosis.nativeHost.error = chrome.runtime.lastError?.message || 'no response';
+            resolve(null);
+            return;
+          }
+          resolve(response);
+        },
+      );
+    });
+
+    if (nativeResponse && nativeResponse.success) {
+      diagnosis.nativeHost.reachable = true;
+      diagnosis.nativeHost.rawResponse = nativeResponse;
+      diagnosis.nativeHost.windowCount = nativeResponse.windows?.length || 0;
+      diagnosis.nativeHost.customNameCount = (nativeResponse.windows || []).filter((w) => w.hasCustomName).length;
+    }
+
+    // Get extension windows
+    const extensionWindows = await chrome.windows.getAll({ populate: true });
+    diagnosis.extensionWindows = extensionWindows.map((w) => ({
+      id: w.id, left: w.left, top: w.top, width: w.width, height: w.height,
+      activeTabTitle: w.tabs?.find((t) => t.active)?.title || null,
+      tabCount: w.tabs?.length || 0,
+    }));
+
+    // Run matching with detailed scoring
+    if (nativeResponse?.success && nativeResponse.windows) {
+      const usedExtensionIds = new Set();
+      for (const native of nativeResponse.windows) {
+        if (!native.hasCustomName) continue;
+        const bounds = native.bounds;
+        if (!bounds) continue;
+
+        for (const ext of extensionWindows) {
+          if (usedExtensionIds.has(ext.id)) continue;
+          let titleScore = 0;
+          let boundsScore = 0;
+
+          if (bounds.x === ext.left && bounds.y === ext.top && bounds.width === ext.width && bounds.height === ext.height) {
+            boundsScore = 1;
+          }
+          if (native.activeTabTitle && ext.tabs) {
+            const activeTab = ext.tabs.find((t) => t.active);
+            if (activeTab && activeTab.title === native.activeTabTitle) {
+              titleScore = 2;
+            }
+          }
+
+          const totalScore = titleScore + boundsScore;
+          diagnosis.matching.pairs.push({
+            nativeName: native.name, nativeTitle: native.activeTabTitle || null,
+            nativeBounds: bounds, extId: ext.id,
+            extTitle: ext.tabs?.find((t) => t.active)?.title || null,
+            extBounds: { x: ext.left, y: ext.top, width: ext.width, height: ext.height },
+            titleScore, boundsScore, totalScore, matched: false,
+          });
+        }
+      }
+
+      // Mark actual matches
+      const matched = matchWindowsByBounds(nativeResponse.windows, extensionWindows);
+      diagnosis.matching.totalMatches = matched.length;
+      for (const m of matched) {
+        const pair = diagnosis.matching.pairs.find((p) => p.nativeName === m.name && p.extId === m.windowId);
+        if (pair) pair.matched = true;
+      }
+    }
+
+    // Read cache after
+    const storedAfter = await chrome.storage.local.get('windowNames');
+    diagnosis.cache.after = storedAfter.windowNames || {};
+
+    // Fetch host debug log tail
+    if (diagnosis.nativeHost.reachable) {
+      try {
+        const logResponse = await new Promise((resolve) => {
+          chrome.runtime.sendNativeMessage(
+            NATIVE_HOST_NAME,
+            { action: 'get_debug_log' },
+            (response) => {
+              if (chrome.runtime.lastError || !response) {
+                resolve(null);
+                return;
+              }
+              resolve(response);
+            },
+          );
+        });
+        diagnosis.hostLogTail = logResponse?.log || '(unavailable)';
+      /* istanbul ignore next - defensive */
+      } catch (_e) {
+        diagnosis.hostLogTail = '(error fetching log)';
+      }
+    } else {
+      diagnosis.hostLogTail = '(native host not reachable)';
+    }
+
+  /* istanbul ignore next - defensive */
+  } catch (e) {
+    diagnosis.error = e?.message || String(e);
+  }
+
+  return diagnosis;
+}
+
 // Message API for popup.js
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'getWindowNames') {
+    tgwlLog('cache-read', 'Popup requested window names');
     // Always fetch fresh data from native host before returning,
     // to avoid race condition where popup reads stale/empty cache
     // before the service worker's startup fetch has completed.
@@ -353,10 +530,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }).then((stored) => {
       /* istanbul ignore next - defensive fallback for missing storage key */
       const names = stored.windowNames || {};
+      tgwlLog('cache-read', 'Returning cache to popup:', JSON.stringify(names));
       sendResponse({
         success: true,
         windowNames: names,
       });
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (message.action === 'diagnose') {
+    tgwlLog('diagnose', 'Running diagnostic pipeline');
+    runDiagnosis().then((diagnosis) => {
+      tgwlLog('diagnose', 'Diagnostic complete');
+      sendResponse({ success: true, diagnosis });
     });
     return true; // Keep message channel open for async response
   }
@@ -382,6 +569,9 @@ if (typeof module !== 'undefined' && module.exports) {
     fetchAndCacheWindowNames,
     updateUrlFingerprint,
     handleStartupMatching,
+    runDiagnosis,
+    tgwlLog,
+    tgwlError,
     NATIVE_HOST_NAME,
     JACCARD_THRESHOLD,
   };

@@ -11,6 +11,7 @@ points at the repo root.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -126,3 +127,113 @@ class TestHostStandalone:
         response = json.loads(stdout[4 : 4 + length])
         assert response["success"] is False
         assert "Unknown action" in response["error"]
+
+
+class TestHostDebugLogging:
+    """Tests for host.py debug log file creation and truncation."""
+
+    def test_creates_debug_log_file(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should create a debug.log file on execution."""
+        log_dir = tmp_path / "log_home" / ".local" / "lib" / "tab-groups-window-namer"
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "log_home"),
+        }
+
+        # Send empty stdin so host exits quickly
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+        assert result.returncode == 0, (
+            f"host.py crashed: {result.stderr}"
+        )
+        log_file = log_dir / "debug.log"
+        assert log_file.exists(), "debug.log should be created"
+        content = log_file.read_text()
+        assert "host.py started" in content
+
+    def test_debug_log_truncation(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should truncate debug.log to last 1000 lines."""
+        log_dir = tmp_path / "trunc_home" / ".local" / "lib" / "tab-groups-window-namer"
+        log_dir.mkdir(parents=True)
+        log_file = log_dir / "debug.log"
+
+        # Write 1500 lines to simulate a large log
+        lines = [f"line {i}" for i in range(1500)]
+        log_file.write_text("\n".join(lines) + "\n")
+
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "trunc_home"),
+        }
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+        assert result.returncode == 0
+
+        # After truncation + new log entries, should be <= ~1002 lines
+        remaining = log_file.read_text().splitlines()
+        assert len(remaining) <= 1010, (
+            f"Expected truncation to ~1000 lines, got {len(remaining)}"
+        )
+        # The first retained line should be from the tail end
+        assert "line 500" in remaining[0]
+
+    def test_get_debug_log_action(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should respond to get_debug_log action."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "log_action_home"),
+        }
+
+        # First run to create the log
+        subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            stdin=subprocess.DEVNULL,
+        )
+
+        # Now request the log tail
+        request = {"action": "get_debug_log"}
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is True
+        assert "log" in response

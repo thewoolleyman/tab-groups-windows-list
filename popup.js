@@ -238,6 +238,19 @@ async function refreshUI() {
     console.error('Error loading data:', error);
     container.innerHTML = '<div class="empty-msg">Error loading windows.</div>';
   }
+
+  // Fire-and-forget diagnostic call for agent observability
+  try {
+    chrome.runtime.sendMessage({ action: 'diagnose' }, (diagResult) => {
+      if (diagResult && diagResult.success) {
+        console.log('[TGWL:DIAG]', JSON.stringify(diagResult.diagnosis));
+      } else {
+        console.log('[TGWL:DIAG]', JSON.stringify({ error: 'diagnose failed', detail: diagResult }));
+      }
+    });
+  } catch (_e) {
+    // Diagnostic forwarding is non-critical
+  }
 }
 
 // Expose refreshUI globally for testing

@@ -1206,3 +1206,219 @@ describe('window creation handling', () => {
     expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalled();
   });
 });
+
+// =============================================================
+// 13. Structured logging (tgwlLog / tgwlError)
+// =============================================================
+
+describe('structured logging', () => {
+  test('tgwlLog should log with [TGWL:<stage>] prefix', () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    background.tgwlLog('test-stage', 'hello', 123);
+    expect(consoleSpy).toHaveBeenCalledWith('[TGWL:test-stage]', 'hello', 123);
+    consoleSpy.mockRestore();
+  });
+
+  test('tgwlError should log with [TGWL:<stage>] prefix via console.error', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    background.tgwlError('test-stage', 'bad thing');
+    expect(consoleSpy).toHaveBeenCalledWith('[TGWL:test-stage]', 'bad thing');
+    consoleSpy.mockRestore();
+  });
+
+  test('fetchAndCacheWindowNames should log native-req on call', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        callback({ success: true, windows: [] });
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+
+    await background.fetchAndCacheWindowNames();
+
+    const logCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(logCalls).toContain('[TGWL:native-req]');
+    consoleSpy.mockRestore();
+  });
+
+  test('fetchAndCacheWindowNames should log error on native host failure', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        chrome.runtime.lastError = { message: 'Host not found' };
+        callback(undefined);
+        chrome.runtime.lastError = undefined;
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+
+    await background.fetchAndCacheWindowNames();
+
+    const errorCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(errorCalls).toContain('[TGWL:native-res]');
+    consoleSpy.mockRestore();
+  });
+
+  test('matchWindowsByBounds should log matching details', () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const nativeWindows = [
+      { name: 'Win', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true },
+    ];
+    const extensionWindows = [
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [] },
+    ];
+    background.matchWindowsByBounds(nativeWindows, extensionWindows);
+
+    const logCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(logCalls).toContain('[TGWL:matching]');
+    consoleSpy.mockRestore();
+  });
+});
+
+// =============================================================
+// 14. Diagnostic message API (diagnose action)
+// =============================================================
+
+describe('diagnose action', () => {
+  test('should respond with structured diagnosis report', async () => {
+    // Set up native host to return windows
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Dev', bounds: { x: 0, y: 0, width: 1920, height: 1080 }, hasCustomName: true, activeTabTitle: 'GitHub' },
+            ],
+          });
+        } else if (message.action === 'get_debug_log') {
+          callback({ success: true, log: '2026-01-01 test log line' });
+        } else {
+          callback({ success: true });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 1920, height: 1080, tabs: [
+        { url: 'https://github.com', title: 'GitHub', active: true },
+      ]},
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const listener = initialListeners.runtimeMessage[0];
+    const sendResponse = jest.fn();
+    listener({ action: 'diagnose' }, { tab: { id: 1 } }, sendResponse);
+
+    // Wait for async processing
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        diagnosis: expect.objectContaining({
+          timestamp: expect.any(String),
+          nativeHost: expect.objectContaining({
+            name: 'com.tabgroups.window_namer',
+            reachable: true,
+          }),
+          extensionWindows: expect.any(Array),
+          matching: expect.objectContaining({
+            pairs: expect.any(Array),
+            totalMatches: expect.any(Number),
+          }),
+          cache: expect.objectContaining({
+            before: expect.any(Object),
+            after: expect.any(Object),
+          }),
+          hostLogTail: expect.any(String),
+        }),
+      }),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  test('should report native host as unreachable when it fails', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        chrome.runtime.lastError = { message: 'Host not found' };
+        callback(undefined);
+        chrome.runtime.lastError = undefined;
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const listener = initialListeners.runtimeMessage[0];
+    const sendResponse = jest.fn();
+    listener({ action: 'diagnose' }, { tab: { id: 1 } }, sendResponse);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const response = sendResponse.mock.calls[0][0];
+    expect(response.success).toBe(true);
+    expect(response.diagnosis.nativeHost.reachable).toBe(false);
+    expect(response.diagnosis.nativeHost.error).toBeTruthy();
+    expect(response.diagnosis.hostLogTail).toBe('(native host not reachable)');
+
+    consoleSpy.mockRestore();
+    console.error.mockRestore();
+  });
+
+  test('should include score breakdown in matching pairs', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Dev', bounds: { x: 0, y: 33, width: 1728, height: 1084 }, hasCustomName: true, activeTabTitle: 'GitHub' },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'GitHub', active: true },
+      ]},
+      { id: 2, left: 0, top: 33, width: 1728, height: 1084, tabs: [
+        { title: 'Other', active: true },
+      ]},
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const listener = initialListeners.runtimeMessage[0];
+    const sendResponse = jest.fn();
+    listener({ action: 'diagnose' }, { tab: { id: 1 } }, sendResponse);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const diag = sendResponse.mock.calls[0][0].diagnosis;
+    expect(diag.matching.pairs.length).toBe(2); // 1 native x 2 ext windows
+    const matchedPair = diag.matching.pairs.find((p) => p.matched);
+    expect(matchedPair).toBeDefined();
+    expect(matchedPair.titleScore).toBe(2);
+    expect(matchedPair.boundsScore).toBe(1);
+    expect(matchedPair.totalScore).toBe(3);
+
+    consoleSpy.mockRestore();
+  });
+
+  test('should export runDiagnosis function', () => {
+    expect(typeof background.runDiagnosis).toBe('function');
+  });
+});

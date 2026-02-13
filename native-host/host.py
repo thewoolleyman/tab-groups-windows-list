@@ -14,12 +14,58 @@ Supported actions:
 from __future__ import annotations
 
 import json
+import logging
 import struct
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 _HEADER_SIZE = 4
+_LOG_DIR = Path.home() / ".local" / "lib" / "tab-groups-window-namer"
+_LOG_FILE = _LOG_DIR / "debug.log"
+_MAX_LOG_LINES = 1000
+
+
+def _setup_debug_logging() -> logging.Logger:
+    """Set up file-based debug logging with line truncation."""
+    logger = logging.getLogger("tgwl-host")
+    logger.setLevel(logging.DEBUG)
+
+    # Don't add handlers if already configured
+    if logger.handlers:
+        return logger
+
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Truncate log file to last _MAX_LOG_LINES on startup
+        if _LOG_FILE.exists():
+            try:
+                lines = _LOG_FILE.read_text().splitlines()
+                if len(lines) > _MAX_LOG_LINES:
+                    _LOG_FILE.write_text(
+                        "\n".join(lines[-_MAX_LOG_LINES:]) + "\n",
+                    )
+            except OSError:
+                pass
+
+        handler = logging.FileHandler(str(_LOG_FILE))
+        handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    except OSError:
+        # If we can't write logs, continue without them
+        pass
+
+    return logger
+
+
+_logger = _setup_debug_logging()
 
 
 # -- Protocol framing --
@@ -77,6 +123,7 @@ def _write_stdout_message(msg: dict[str, Any]) -> None:
 
 def _detect_browser() -> str:
     """Detect which Chromium browser is running."""
+    _logger.debug("Detecting browser...")
     result = subprocess.run(
         ["osascript", "-e",
          'tell application "System Events" to '
@@ -88,7 +135,9 @@ def _detect_browser() -> str:
         check=False,
     )
     if result.returncode == 0 and "Brave" in result.stdout:
+        _logger.debug("Detected: Brave Browser")
         return "Brave Browser"
+    _logger.debug("Detected: Google Chrome")
     return "Google Chrome"
 
 
@@ -131,6 +180,7 @@ def _get_window_names() -> list[dict[str, Any]]:
     """Get window names for the detected browser."""
     browser = _detect_browser()
     cmd = _build_osascript_command(browser)
+    _logger.debug("osascript command: %s", cmd[:200])
     result = subprocess.run(
         ["bash", "-c", cmd],
         capture_output=True,
@@ -138,9 +188,16 @@ def _get_window_names() -> list[dict[str, Any]]:
         timeout=10,
         check=False,
     )
+    _logger.debug("osascript rc=%d stdout=%s stderr=%s",
+                   result.returncode,
+                   result.stdout[:500] if result.stdout else "",
+                   result.stderr[:500] if result.stderr else "")
     if result.returncode != 0:
+        _logger.warning("osascript failed with rc=%d", result.returncode)
         return []
-    return _parse_osascript_output(result.stdout)
+    windows = _parse_osascript_output(result.stdout)
+    _logger.debug("Parsed %d windows", len(windows))
+    return windows
 
 
 # -- Request handling --
@@ -148,8 +205,10 @@ def _get_window_names() -> list[dict[str, Any]]:
 
 def _handle_message(request: dict[str, Any]) -> dict[str, Any]:
     """Handle a native messaging request."""
+    _logger.debug("Request received: %s", json.dumps(request)[:500])
     action = request.get("action")
     if not action:
+        _logger.warning("Missing 'action' field")
         return {
             "success": False,
             "error": "Missing 'action' field in request",
@@ -158,18 +217,39 @@ def _handle_message(request: dict[str, Any]) -> dict[str, Any]:
         try:
             windows = _get_window_names()
         except Exception as exc:
+            _logger.exception("get_window_names failed")
             return {
                 "success": False,
                 "error": str(exc),
             }
-        return {
+        response = {
             "success": True,
             "windows": windows,
         }
+        _logger.debug("Response: %s", json.dumps(response)[:500])
+        return response
+    if action == "ping":
+        _logger.debug("Ping received")
+        return {"success": True}
+    if action == "get_debug_log":
+        return _get_debug_log_tail()
+    _logger.warning("Unknown action: %s", action)
     return {
         "success": False,
         "error": f"Unknown action: {action}",
     }
+
+
+def _get_debug_log_tail(lines: int = 20) -> dict[str, Any]:
+    """Return the tail of the debug log file."""
+    try:
+        if _LOG_FILE.exists():
+            all_lines = _LOG_FILE.read_text().splitlines()
+            tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+            return {"success": True, "log": "\n".join(tail)}
+        return {"success": True, "log": "(no log file)"}
+    except OSError as exc:
+        return {"success": False, "error": str(exc)}
 
 
 # -- Main entry point --
@@ -177,11 +257,14 @@ def _handle_message(request: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     """Run the native messaging host."""
+    _logger.debug("--- host.py started ---")
     raw = _read_stdin_message()
     if not raw:
+        _logger.debug("Empty stdin, exiting")
         return
     request = _decode_message(raw)
     if request is None:
+        _logger.warning("Failed to decode message")
         _write_stdout_message({
             "success": False,
             "error": "Failed to decode message",
@@ -189,6 +272,7 @@ def main() -> None:
         return
     response = _handle_message(request)
     _write_stdout_message(response)
+    _logger.debug("--- host.py finished ---")
 
 
 if __name__ == "__main__":

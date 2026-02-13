@@ -1932,3 +1932,101 @@ describe('Setup instructions link', () => {
     expect(appendedClassNames).not.toContain('setup-link');
   });
 });
+
+describe('Diagnostic forwarding', () => {
+  let mockContainer;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    setContainer(null);
+    mockDocument.querySelectorAll.mockReturnValue([]);
+  });
+
+  test('should send diagnose action after refreshUI completes', async () => {
+    const sendMessageCalls = [];
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      sendMessageCalls.push(msg);
+      if (msg.action === 'getWindowNames') {
+        cb({ success: true, windowNames: {} });
+      } else if (msg.action === 'diagnose') {
+        cb({ success: true, diagnosis: { timestamp: '2026-01-01T00:00:00Z' } });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    const actions = sendMessageCalls.map((c) => c.action);
+    expect(actions).toContain('getWindowNames');
+    expect(actions).toContain('diagnose');
+  });
+
+  test('should log diagnostic result with [TGWL:DIAG] tag', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diagData = { timestamp: '2026-01-01T00:00:00Z', nativeHost: { reachable: true } };
+
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowNames') {
+        cb({ success: true, windowNames: {} });
+      } else if (msg.action === 'diagnose') {
+        cb({ success: true, diagnosis: diagData });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Check that [TGWL:DIAG] was logged
+    const diagCalls = consoleSpy.mock.calls.filter((c) => c[0] === '[TGWL:DIAG]');
+    expect(diagCalls.length).toBeGreaterThan(0);
+    expect(diagCalls[0][1]).toContain('"timestamp"');
+
+    consoleSpy.mockRestore();
+  });
+
+  test('should handle diagnose failure gracefully', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowNames') {
+        cb({ success: true, windowNames: {} });
+      } else if (msg.action === 'diagnose') {
+        cb({ success: false, error: 'not available' });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+
+    setContainer(mockContainer);
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    // Should not throw
+    await expect(refreshUI()).resolves.toBeUndefined();
+
+    // Should still log something with DIAG tag
+    const diagCalls = consoleSpy.mock.calls.filter((c) => c[0] === '[TGWL:DIAG]');
+    expect(diagCalls.length).toBeGreaterThan(0);
+    expect(diagCalls[0][1]).toContain('diagnose failed');
+
+    consoleSpy.mockRestore();
+  });
+});
