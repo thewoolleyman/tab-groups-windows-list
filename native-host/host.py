@@ -277,7 +277,15 @@ def main() -> None:
     if not raw:
         _logger.debug("Empty stdin, exiting")
         return
-    request = _decode_message(raw)
+    try:
+        request = _decode_message(raw)
+    except ValueError as exc:
+        _logger.warning("Failed to decode message: %s", exc)
+        _write_stdout_message({
+            "success": False,
+            "error": f"Failed to decode message: {exc}",
+        })
+        return
     if request is None:
         _logger.warning("Failed to decode message")
         _write_stdout_message({

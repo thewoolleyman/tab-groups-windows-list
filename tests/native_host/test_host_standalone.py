@@ -348,3 +348,124 @@ class TestHostDebugLogging:
         response = json.loads(stdout[4 : 4 + length])
         assert response["success"] is False
         assert "data" in response["error"].lower()
+
+
+class TestHostMissingActionAndPing:
+    """Tests for missing action field and ping action."""
+
+    def test_host_rejects_missing_action_field(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should return error when action field is missing."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "no_action_home"),
+        }
+        request = {"key": "value"}  # No 'action' field
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is False
+        assert "action" in response["error"].lower()
+
+    def test_host_responds_to_ping(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should respond successfully to ping action."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "ping_home"),
+        }
+        request = {"action": "ping"}
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is True
+
+
+class TestHostMalformedInput:
+    """Tests for malformed/corrupt native messaging input."""
+
+    def test_host_handles_malformed_json(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should return error for invalid JSON in native message."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "bad_json_home"),
+        }
+        # Send a valid length header but invalid JSON body
+        bad_body = b"not valid json{{"
+        stdin_data = struct.pack("<I", len(bad_body)) + bad_body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is False
+        assert "decode" in response["error"].lower()
+
+    def test_host_handles_truncated_message(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should handle truncated stdin gracefully."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "trunc_home"),
+        }
+        # Send a length header claiming 100 bytes but only provide 5
+        stdin_data = struct.pack("<I", 100) + b"short"
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is False

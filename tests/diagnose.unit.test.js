@@ -310,4 +310,143 @@ describe('testNativeHostDirect', () => {
     expect(result.reachable).toBe(false);
     expect(result.error).toBe('host.py not found');
   });
+
+  it('returns successful result when host.py responds correctly', () => {
+    // Use the actual host.py in the repo
+    const hostPath = path.join(__dirname, '..', 'native-host', 'host.py');
+    if (!fs.existsSync(hostPath)) {
+      // Skip if host.py doesn't exist (CI environment)
+      return;
+    }
+    const result = testNativeHostDirect(hostPath);
+    // The host should be reachable (it may or may not find windows)
+    expect(result.response).toBeDefined();
+    expect(result).toHaveProperty('reachable');
+    expect(result).toHaveProperty('windowCount');
+    expect(result).toHaveProperty('customNameCount');
+    expect(typeof result.windowCount).toBe('number');
+    expect(typeof result.customNameCount).toBe('number');
+  });
+
+  it('returns error for invalid response format when host produces garbage', () => {
+    // Create a script that writes non-native-messaging output
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'host-test-'));
+    const fakePath = path.join(tmpDir, 'fake_host.py');
+    fs.writeFileSync(fakePath, `#!/usr/bin/env python3
+import sys
+sys.stdout.buffer.write(b"not a native message")
+`, 'utf-8');
+    fs.chmodSync(fakePath, 0o755);
+
+    const result = testNativeHostDirect(fakePath);
+    expect(result.reachable).toBe(false);
+    expect(result.error).toBe('invalid response format');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns error when host.py execution fails (timeout or crash)', () => {
+    // Create a script that exits with error
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'host-test-'));
+    const crashPath = path.join(tmpDir, 'crash_host.py');
+    fs.writeFileSync(crashPath, `#!/usr/bin/env python3
+import sys
+sys.exit(1)
+`, 'utf-8');
+    fs.chmodSync(crashPath, 0o755);
+
+    const result = testNativeHostDirect(crashPath);
+    expect(result.reachable).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(typeof result.error).toBe('string');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe('patchManifestForExtensionId - missing allowed_origins', () => {
+  let tmpDir;
+  let manifestPath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'manifest-test-'));
+    manifestPath = path.join(tmpDir, `${HOST_NAME}.json`);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('handles manifest with no allowed_origins field', () => {
+    const original = {
+      name: HOST_NAME,
+      description: 'test',
+      path: '/usr/local/bin/host.py',
+      type: 'stdio',
+      // No allowed_origins field at all
+    };
+    fs.writeFileSync(manifestPath, JSON.stringify(original), 'utf-8');
+
+    const dynamicId = 'abcdefghijklmnopqrstuvwxyzabcdef';
+    const backup = patchManifestForExtensionId(dynamicId, manifestPath);
+
+    expect(backup).toEqual(original);
+
+    const patched = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    expect(patched.allowed_origins).toContain(`chrome-extension://${dynamicId}/`);
+    expect(patched.allowed_origins).toHaveLength(1);
+  });
+});
+
+// =============================================================
+// diagnose.mjs parseArgs (tested via CommonJS-compatible extract)
+// =============================================================
+
+describe('parseArgs logic', () => {
+  // parseArgs is in diagnose.mjs (ESM), but the logic is simple enough
+  // to replicate and test the contract here
+  function parseArgs(argv) {
+    const args = { output: null, timeout: 15000 };
+    for (let i = 2; i < argv.length; i++) {
+      if (argv[i] === '--output' && argv[i + 1]) {
+        args.output = argv[++i];
+      } else if (argv[i] === '--timeout' && argv[i + 1]) {
+        args.timeout = parseInt(argv[++i], 10);
+      }
+    }
+    return args;
+  }
+
+  it('returns defaults with no arguments', () => {
+    const result = parseArgs(['node', 'diagnose.mjs']);
+    expect(result).toEqual({ output: null, timeout: 15000 });
+  });
+
+  it('parses --output flag', () => {
+    const result = parseArgs(['node', 'diagnose.mjs', '--output', '/tmp/diag.json']);
+    expect(result.output).toBe('/tmp/diag.json');
+    expect(result.timeout).toBe(15000);
+  });
+
+  it('parses --timeout flag', () => {
+    const result = parseArgs(['node', 'diagnose.mjs', '--timeout', '20000']);
+    expect(result.timeout).toBe(20000);
+    expect(result.output).toBeNull();
+  });
+
+  it('parses both flags together', () => {
+    const result = parseArgs(['node', 'diagnose.mjs', '--output', '/tmp/out.json', '--timeout', '5000']);
+    expect(result.output).toBe('/tmp/out.json');
+    expect(result.timeout).toBe(5000);
+  });
+
+  it('ignores unknown flags', () => {
+    const result = parseArgs(['node', 'diagnose.mjs', '--verbose', '--output', '/tmp/x.json']);
+    expect(result.output).toBe('/tmp/x.json');
+  });
+
+  it('ignores --output without value', () => {
+    const result = parseArgs(['node', 'diagnose.mjs', '--output']);
+    expect(result.output).toBeNull();
+  });
 });

@@ -253,6 +253,14 @@ describe('computeUrlFingerprint', () => {
     const result = background.computeUrlFingerprint(tabs);
     expect(result).toContain('example.com');
   });
+
+  test('should return empty string for null input', () => {
+    expect(background.computeUrlFingerprint(null)).toBe('');
+  });
+
+  test('should return empty string for undefined input', () => {
+    expect(background.computeUrlFingerprint(undefined)).toBe('');
+  });
 });
 
 // =============================================================
@@ -1424,8 +1432,57 @@ describe('diagnose action', () => {
 });
 
 describe('detectBrowser', () => {
+  const originalNavigator = global.navigator;
+
+  afterEach(() => {
+    // Restore original navigator
+    Object.defineProperty(global, 'navigator', {
+      value: originalNavigator,
+      writable: true,
+      configurable: true,
+    });
+  });
+
   test('should return Google Chrome when no specific browser detected', () => {
     expect(background.detectBrowser()).toBe('Google Chrome');
+  });
+
+  test('should detect Brave Browser from user agent', () => {
+    Object.defineProperty(global, 'navigator', {
+      value: { userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120.0.0.0 Brave/120' },
+      writable: true,
+      configurable: true,
+    });
+    // Need to re-require to pick up the new navigator
+    // Since detectBrowser reads navigator at call time, we can test directly
+    expect(background.detectBrowser()).toBe('Brave Browser');
+  });
+
+  test('should detect Microsoft Edge from user agent', () => {
+    Object.defineProperty(global, 'navigator', {
+      value: { userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120.0.0.0 Edg/120.0' },
+      writable: true,
+      configurable: true,
+    });
+    expect(background.detectBrowser()).toBe('Microsoft Edge');
+  });
+
+  test('should detect Chromium from user agent', () => {
+    Object.defineProperty(global, 'navigator', {
+      value: { userAgent: 'Mozilla/5.0 (X11; Linux) Chromium/120.0.0.0' },
+      writable: true,
+      configurable: true,
+    });
+    expect(background.detectBrowser()).toBe('Chromium');
+  });
+
+  test('should prioritize Brave over Chromium when both present', () => {
+    Object.defineProperty(global, 'navigator', {
+      value: { userAgent: 'Mozilla/5.0 Chromium/120 Brave/120' },
+      writable: true,
+      configurable: true,
+    });
+    expect(background.detectBrowser()).toBe('Brave Browser');
   });
 
   test('should export detectBrowser function', () => {
@@ -1464,5 +1521,62 @@ describe('logExtensionData', () => {
 
   test('should export logExtensionData function', () => {
     expect(typeof background.logExtensionData).toBe('function');
+  });
+
+  test('should not throw when sendNativeMessage itself throws', () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(() => {
+      throw new Error('Extension context invalidated');
+    });
+
+    expect(() => {
+      background.logExtensionData('test_event', { key: 'value' });
+    }).not.toThrow();
+  });
+});
+
+// =============================================================
+// 15b. fetchAndCacheWindowNames calls logExtensionData
+// =============================================================
+
+describe('fetchAndCacheWindowNames logExtensionData integration', () => {
+  test('should call logExtensionData with match_result after successful matching', async () => {
+    // Ensure lastError is cleared (may be stale from prior tests)
+    mockChrome.runtime.lastError = undefined;
+
+    const nativeMessages = [];
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        nativeMessages.push(message);
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Dev', bounds: { x: 0, y: 0, width: 1920, height: 1080 }, hasCustomName: true },
+            ],
+          });
+        } else if (message.action === 'log_extension_data') {
+          // Fire-and-forget callback
+          if (callback) callback();
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 1920, height: 1080, tabs: [{ url: 'https://github.com' }] },
+    ]);
+
+    await background.fetchAndCacheWindowNames();
+
+    // Should have sent log_extension_data messages for match_result and cache_updated
+    const logMessages = nativeMessages.filter(m => m.action === 'log_extension_data');
+    expect(logMessages.length).toBeGreaterThanOrEqual(2);
+
+    const matchResultLog = logMessages.find(m => m.data?.event === 'match_result');
+    expect(matchResultLog).toBeDefined();
+    expect(matchResultLog.data.matchCount).toBe(1);
+    expect(matchResultLog.data.matches).toHaveLength(1);
+
+    const cacheLog = logMessages.find(m => m.data?.event === 'cache_updated');
+    expect(cacheLog).toBeDefined();
+    expect(cacheLog.data.windowNames).toBeDefined();
   });
 });
