@@ -24,6 +24,7 @@ const {
   extractDiagJson,
   readNativeHostLogTail,
   assembleOutput,
+  testNativeHostDirect,
 } = require('./diagnose-helpers.js');
 
 // --- CLI ---
@@ -140,12 +141,16 @@ async function main() {
     // Read native host debug log
     const logTail = readNativeHostLogTail();
 
+    // Test native host directly (bypasses Chrome native messaging)
+    const directHostTest = testNativeHostDirect();
+
     // Assemble output
     const output = assembleOutput({
       diagnosis: diagResult,
       serviceWorkerLogs,
       nativeHostLogTail: logTail,
       extensionId,
+      directHostTest,
     });
 
     const jsonStr = JSON.stringify(output, null, 2);

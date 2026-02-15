@@ -84,11 +84,16 @@ npm run diagnose -- --timeout 20000
 ### Output Structure
 
 - **`diagnosis`** — Result from `runDiagnosis()` in background.js:
-  - `nativeHost.reachable` — Is the native messaging host responding?
+  - `nativeHost.reachable` — Is the native messaging host responding via Chrome's native messaging?
   - `matching.pairs` — All window matching attempts with `boundsScore` + `titleScore`
   - `matching.totalMatches` — How many windows matched successfully
   - `cache.before` / `cache.after` — Chrome storage state before/after refresh
   - `hostLogTail` — Last 20 lines of the native host debug log (via host API)
+- **`directHostTest`** — Direct native host test (bypasses Chrome, spawns host.py directly):
+  - `reachable` — Did host.py respond successfully?
+  - `response` — Full parsed response from host.py
+  - `windowCount` / `customNameCount` — How many windows were detected
+  - Note: `diagnosis.nativeHost.reachable` may be false in Playwright Chromium due to extension ID mismatch, but `directHostTest.reachable` confirms the host binary works
 - **`serviceWorkerLogs`** — All `[TGWL:*]` tagged log entries from the background service worker, with timestamps
 - **`nativeHostLogTail`** — Last 50 lines from `~/.local/lib/tab-groups-window-namer/debug.log`
 - **`metadata`** — Capture timestamp, extension ID, platform
