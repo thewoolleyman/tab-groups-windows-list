@@ -168,12 +168,8 @@ function logExtensionData(event, data) {
     chrome.runtime.sendNativeMessage(
       NATIVE_HOST_NAME,
       { action: 'log_extension_data', data: { source: 'background.js', event, ...data } },
-      () => {
-        // Ignore response — fire and forget
-        if (chrome.runtime.lastError) {
-          // Silently ignore — logging should never break the pipeline
-        }
-      },
+      /* istanbul ignore next - fire-and-forget callback */
+      () => { if (chrome.runtime.lastError) { /* silently ignore */ } },
     );
   /* istanbul ignore next - defensive */
   } catch (_e) {
