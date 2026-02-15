@@ -6,6 +6,7 @@
 # Testing
 /playwright-report/
 /test-results/
+.playwright-mcp/
 
 # Build output
 /dist/
