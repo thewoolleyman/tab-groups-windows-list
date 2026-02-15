@@ -62,6 +62,64 @@ Testing stack:
 ### THE RULE:
 If a story's acceptance criteria can fail, a test MUST catch it.
 
+---
+
+## Debugging: Native Host & Window Name Detection
+
+Run `npm run diagnose` for automated diagnostics without human intervention. This launches Chromium with the extension, triggers the diagnostic API, captures all pipeline logs, and outputs structured JSON.
+
+### Usage
+
+```bash
+# Quick diagnostic dump to stdout
+npm run diagnose
+
+# Save to file for analysis
+npm run diagnose -- --output /tmp/diag.json
+
+# Custom timeout (default 15s)
+npm run diagnose -- --timeout 20000
+```
+
+### Output Structure
+
+- **`diagnosis`** — Result from `runDiagnosis()` in background.js:
+  - `nativeHost.reachable` — Is the native messaging host responding?
+  - `matching.pairs` — All window matching attempts with `boundsScore` + `titleScore`
+  - `matching.totalMatches` — How many windows matched successfully
+  - `cache.before` / `cache.after` — Chrome storage state before/after refresh
+  - `hostLogTail` — Last 20 lines of the native host debug log (via host API)
+- **`serviceWorkerLogs`** — All `[TGWL:*]` tagged log entries from the background service worker, with timestamps
+- **`nativeHostLogTail`** — Last 50 lines from `~/.local/lib/tab-groups-window-namer/debug.log`
+- **`metadata`** — Capture timestamp, extension ID, platform
+
+### Interpreting Results
+
+Matching scores: `boundsScore` (0 or 1, exact bounds match) + `titleScore` (0 or 2, active tab title match). A `totalScore` of 3 is a strong match; 1 is bounds-only; 0 is no match.
+
+### `[TGWL:*]` Tag Reference
+
+| Tag | Pipeline Stage |
+|-----|---------------|
+| `native-req` | Outgoing native host request |
+| `native-res` | Incoming native host response |
+| `ext-windows` | Extension window enumeration |
+| `matching` | Individual window match attempt |
+| `match-result` | Final match summary |
+| `cache-read` | Reading from chrome.storage |
+| `cache-write` | Writing to chrome.storage |
+| `startup-match` | Restart matching via Jaccard similarity |
+| `error` | Error conditions |
+| `DIAG` | Diagnostic JSON output (popup.js) |
+
+### Quick Debugging Checklist
+
+1. Run `npm run diagnose -- --output /tmp/diag.json`
+2. Check `diagnosis.nativeHost.reachable` — is the host responding?
+3. Check `diagnosis.matching.pairs` — are scores > 0? Which windows matched?
+4. Check `nativeHostLogTail` — any osascript errors?
+5. Check `serviceWorkerLogs` — any `[TGWL:error]` entries?
+
 <!-- bv-agent-instructions-v1 -->
 
 ---

@@ -12,7 +12,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run test && npm run test:e2e",
-    "install:native-host": "bash native-host/install.sh"
+    "install:native-host": "bash native-host/install.sh",
+    "diagnose": "node scripts/diagnose.mjs"
   },
   "keywords": [
     "chrome",
