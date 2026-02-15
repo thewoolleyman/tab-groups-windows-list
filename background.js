@@ -486,14 +486,12 @@ async function runDiagnosis() {
 
     // Run matching with detailed scoring
     if (nativeResponse?.success && nativeResponse.windows) {
-      const usedExtensionIds = new Set();
       for (const native of nativeResponse.windows) {
         if (!native.hasCustomName) continue;
         const bounds = native.bounds;
         if (!bounds) continue;
 
         for (const ext of extensionWindows) {
-          if (usedExtensionIds.has(ext.id)) continue;
           let titleScore = 0;
           let boundsScore = 0;
 
@@ -523,6 +521,7 @@ async function runDiagnosis() {
       diagnosis.matching.totalMatches = matched.length;
       for (const m of matched) {
         const pair = diagnosis.matching.pairs.find((p) => p.nativeName === m.name && p.extId === m.windowId);
+        /* istanbul ignore else - pair always exists since scoring creates all combos */
         if (pair) pair.matched = true;
       }
     }
@@ -548,8 +547,8 @@ async function runDiagnosis() {
           );
         });
         diagnosis.hostLogTail = logResponse?.log || '(unavailable)';
-      /* istanbul ignore next - defensive */
       } catch (_e) {
+        /* istanbul ignore next - defensive: Promise wrapper prevents throw */
         diagnosis.hostLogTail = '(error fetching log)';
       }
     } else {

@@ -1580,3 +1580,483 @@ describe('fetchAndCacheWindowNames logExtensionData integration', () => {
     expect(cacheLog.data.windowNames).toBeDefined();
   });
 });
+
+// =============================================================
+// 16. Error/catch path coverage
+// =============================================================
+
+describe('error path coverage', () => {
+  test('fetchAndCacheWindowNames catch block handles thrown error', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // Make windows.getAll throw to hit the catch block (line 265)
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        callback({ success: true, windows: [] });
+      },
+    );
+    mockChrome.windows.getAll.mockRejectedValue(new Error('Extension context invalidated'));
+
+    await background.fetchAndCacheWindowNames();
+
+    const errorCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(errorCalls).toContain('[TGWL:error]');
+    consoleSpy.mockRestore();
+  });
+
+  test('updateUrlFingerprint catch block handles thrown error', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // Make storage.get throw to hit the catch block (line 293)
+    mockChrome.storage.local.get.mockRejectedValue(new Error('Storage error'));
+
+    await background.updateUrlFingerprint(1);
+
+    const errorCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(errorCalls).toContain('[TGWL:error]');
+    consoleSpy.mockRestore();
+  });
+
+  test('handleStartupMatching catch block handles thrown error', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // Make storage.get throw to hit the catch block (line 374)
+    mockChrome.storage.local.get.mockRejectedValue(new Error('Storage error'));
+
+    await background.handleStartupMatching();
+
+    const errorCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(errorCalls).toContain('[TGWL:error]');
+    consoleSpy.mockRestore();
+  });
+
+  test('onRemoved catch block handles thrown error', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // Make storage.get throw to hit the catch block (line 400)
+    mockChrome.storage.local.get.mockRejectedValue(new Error('Storage error'));
+
+    const listener = initialListeners.windowsRemoved[0];
+    await listener(1);
+
+    const errorCalls = consoleSpy.mock.calls.map((c) => c[0]);
+    expect(errorCalls).toContain('[TGWL:error]');
+    consoleSpy.mockRestore();
+  });
+
+  test('fetchAndCacheWindowNames handles null response (no lastError)', async () => {
+    mockChrome.runtime.lastError = undefined;
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        // No lastError but response is null
+        callback(null);
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await background.fetchAndCacheWindowNames();
+    consoleSpy.mockRestore();
+
+    // Should not throw, should log native-res error about 'no response'
+  });
+});
+
+// =============================================================
+// 17. runDiagnosis branch coverage
+// =============================================================
+
+describe('runDiagnosis branch coverage', () => {
+  test('should handle native host response with no windows array', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({ success: true }); // No windows field
+        } else if (message.action === 'get_debug_log') {
+          callback({ success: true, log: 'test' });
+        } else {
+          callback({ success: true });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    expect(diag.nativeHost.reachable).toBe(true);
+    expect(diag.nativeHost.windowCount).toBe(0);
+    expect(diag.nativeHost.customNameCount).toBe(0);
+  });
+
+  test('should handle get_debug_log returning lastError', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({ success: true, windows: [] });
+        } else if (message.action === 'get_debug_log') {
+          chrome.runtime.lastError = { message: 'Host disconnected' };
+          callback(undefined);
+          chrome.runtime.lastError = undefined;
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    expect(diag.nativeHost.reachable).toBe(true);
+    // hostLogTail should be (unavailable) since log response is null
+    expect(diag.hostLogTail).toBe('(unavailable)');
+  });
+
+  test('should handle extension windows with no tabs', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Win', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'Test' },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    // Extension window with no tabs
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600 },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // Should handle gracefully
+    expect(diag.extensionWindows[0].activeTabTitle).toBeNull();
+    expect(diag.extensionWindows[0].tabCount).toBe(0);
+  });
+
+  test('should handle native window with no bounds in diagnosis', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Win', hasCustomName: true, activeTabTitle: 'Test' }, // no bounds
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [{ title: 'Test', active: true }] },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // No matching pairs since native window has no bounds
+    expect(diag.matching.pairs).toEqual([]);
+  });
+
+  test('should handle runDiagnosis catch block when storage throws', async () => {
+    mockChrome.storage.local.get.mockRejectedValue(new Error('Storage unavailable'));
+    mockChrome.windows.getAll.mockResolvedValue([]);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    expect(diag.error).toBe('Storage unavailable');
+  });
+
+  test('should handle matching when native has hasCustomName false', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Not Custom', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: false },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [{ title: 'Test', active: true }] },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // hasCustomName false should skip matching
+    expect(diag.matching.pairs).toEqual([]);
+  });
+
+  test('should exercise non-matching title and bounds score paths', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Win', bounds: { x: 99, y: 99, width: 99, height: 99 }, hasCustomName: true, activeTabTitle: 'NoMatch' },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [{ title: 'Different', active: true }] },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // Should have a pair with zero scores
+    expect(diag.matching.pairs).toHaveLength(1);
+    expect(diag.matching.pairs[0].boundsScore).toBe(0);
+    expect(diag.matching.pairs[0].titleScore).toBe(0);
+    expect(diag.matching.pairs[0].totalScore).toBe(0);
+  });
+
+  test('should handle duplicate extension window dedup in diagnosis scoring', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'A', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'Tab A' },
+              { name: 'B', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'Tab B' },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [{ title: 'Tab A', active: true }] },
+      { id: 2, left: 0, top: 0, width: 800, height: 600, tabs: [{ title: 'Tab B', active: true }] },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // Should have 4 pairs (2 native x 2 ext)
+    expect(diag.matching.pairs).toHaveLength(4);
+    expect(diag.matching.totalMatches).toBe(2);
+  });
+});
+
+// =============================================================
+// 18. detectBrowser navigator edge cases
+// =============================================================
+
+describe('detectBrowser navigator edge cases', () => {
+  const originalNavigator = global.navigator;
+
+  afterEach(() => {
+    Object.defineProperty(global, 'navigator', {
+      value: originalNavigator,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  test('should handle navigator with no userAgent property', () => {
+    Object.defineProperty(global, 'navigator', {
+      value: {},
+      writable: true,
+      configurable: true,
+    });
+    // navigator exists but userAgent is undefined, should fall through to ''
+    expect(background.detectBrowser()).toBe('Google Chrome');
+  });
+});
+
+// =============================================================
+// 19. Binary expression fallback coverage (|| branches)
+// =============================================================
+
+describe('binary expression fallback coverage', () => {
+  test('catch blocks handle error with no message property', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    // fetchAndCacheWindowNames: throw a non-Error to hit `e?.message || e` fallback
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        callback({ success: true, windows: [] });
+      },
+    );
+    mockChrome.windows.getAll.mockRejectedValue('raw string error');
+    await background.fetchAndCacheWindowNames();
+    expect(consoleSpy).toHaveBeenCalledWith('[TGWL:error]', 'fetchAndCacheWindowNames failed:', 'raw string error');
+
+    // updateUrlFingerprint: throw a non-Error
+    mockChrome.storage.local.get.mockRejectedValue('storage string error');
+    await background.updateUrlFingerprint(1);
+    expect(consoleSpy).toHaveBeenCalledWith('[TGWL:error]', 'updateUrlFingerprint(1) failed:', 'storage string error');
+
+    // handleStartupMatching: throw a non-Error
+    await background.handleStartupMatching();
+    expect(consoleSpy).toHaveBeenCalledWith('[TGWL:error]', 'handleStartupMatching failed:', 'storage string error');
+
+    // onRemoved: throw a non-Error
+    const listener = initialListeners.windowsRemoved[0];
+    await listener(1);
+    expect(consoleSpy).toHaveBeenCalledWith('[TGWL:error]', 'onRemoved(1) failed:', 'storage string error');
+
+    consoleSpy.mockRestore();
+  });
+
+  test('runDiagnosis handles storage returning empty windowNames key', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({ success: true, windows: [] });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    // Return empty object — no windowNames key at all
+    mockChrome.storage.local.get.mockResolvedValue({});
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // Should use {} fallback for cache.before and cache.after
+    expect(diag.cache.before).toEqual({});
+    expect(diag.cache.after).toEqual({});
+  });
+
+  test('runDiagnosis diagnosis error reports lastError with no message', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          chrome.runtime.lastError = {};  // lastError exists but no message
+          callback(undefined);
+          chrome.runtime.lastError = undefined;
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+    console.error.mockRestore();
+
+    expect(diag.nativeHost.reachable).toBe(false);
+    // Should fall back to 'no response' when lastError.message is undefined
+    expect(diag.nativeHost.error).toBe('no response');
+  });
+
+  test('runDiagnosis catch handles error with no message', async () => {
+    // Make storage throw a non-Error string
+    mockChrome.storage.local.get.mockRejectedValue('raw error');
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    // Should use String(e) fallback when e?.message is falsy
+    expect(diag.error).toBe('raw error');
+  });
+
+  test('runDiagnosis exercises ext.tabs null fallback in scoring', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Win', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true, activeTabTitle: 'Tab' },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    // Extension window with no tabs — exercises line 496 (ext.tabs falsy) and line 512 fallback
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600 },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    expect(diag.matching.pairs).toHaveLength(1);
+    expect(diag.matching.pairs[0].titleScore).toBe(0);
+    expect(diag.matching.pairs[0].extTitle).toBeNull();
+  });
+
+  test('runDiagnosis exercises native.activeTabTitle falsy fallback in scoring', async () => {
+    mockChrome.runtime.sendNativeMessage.mockImplementation(
+      (hostName, message, callback) => {
+        if (message.action === 'get_window_names') {
+          callback({
+            success: true,
+            windows: [
+              { name: 'Win', bounds: { x: 0, y: 0, width: 800, height: 600 }, hasCustomName: true },
+            ],
+          });
+        } else {
+          callback({ success: true, log: '' });
+        }
+      },
+    );
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, left: 0, top: 0, width: 800, height: 600, tabs: [{ title: 'Tab', active: true }] },
+    ]);
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const diag = await background.runDiagnosis();
+    consoleSpy.mockRestore();
+
+    expect(diag.matching.pairs).toHaveLength(1);
+    // native.activeTabTitle is undefined, so nativeTitle should be null (|| null fallback)
+    expect(diag.matching.pairs[0].nativeTitle).toBeNull();
+  });
+});
