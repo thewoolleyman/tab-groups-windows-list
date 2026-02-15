@@ -233,11 +233,22 @@ def _handle_message(request: dict[str, Any]) -> dict[str, Any]:
         return {"success": True}
     if action == "get_debug_log":
         return _get_debug_log_tail()
+    if action == "log_extension_data":
+        return _log_extension_data(request)
     _logger.warning("Unknown action: %s", action)
     return {
         "success": False,
         "error": f"Unknown action: {action}",
     }
+
+
+def _log_extension_data(request: dict[str, Any]) -> dict[str, Any]:
+    """Log extension data to the debug log file."""
+    data = request.get("data")
+    if not data:
+        return {"success": False, "error": "Missing 'data' field in request"}
+    _logger.info("[EXT-DATA] %s", json.dumps(data)[:2000])
+    return {"success": True}
 
 
 def _get_debug_log_tail(lines: int = 20) -> dict[str, Any]:

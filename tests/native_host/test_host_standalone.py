@@ -237,3 +237,79 @@ class TestHostDebugLogging:
         response = json.loads(stdout[4 : 4 + length])
         assert response["success"] is True
         assert "log" in response
+
+    def test_log_extension_data_action(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should accept log_extension_data and write to debug log."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "ext_log_home"),
+        }
+        log_dir = tmp_path / "ext_log_home" / ".local" / "lib" / "tab-groups-window-namer"
+
+        request = {
+            "action": "log_extension_data",
+            "data": {
+                "source": "background.js",
+                "event": "match_result",
+                "matches": [
+                    {"windowId": 123, "name": "Test Window", "score": 3},
+                ],
+                "totalMatches": 1,
+            },
+        }
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is True
+
+        # Verify the data was written to the debug log
+        log_file = log_dir / "debug.log"
+        log_content = log_file.read_text()
+        assert "EXT-DATA" in log_content
+        assert "match_result" in log_content
+        assert "Test Window" in log_content
+
+    def test_log_extension_data_rejects_missing_data(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should reject log_extension_data without data field."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "ext_log_nodata"),
+        }
+
+        request = {"action": "log_extension_data"}
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=10,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert response["success"] is False
+        assert "data" in response["error"].lower()

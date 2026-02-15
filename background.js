@@ -158,6 +158,30 @@ function jaccardSimilarity(fp1, fp2) {
 }
 
 /**
+ * Log extension data to disk via the native host.
+ * Fire-and-forget — does not block the caller.
+ * @param {string} event - Event name for log identification
+ * @param {object} data - Data to log
+ */
+function logExtensionData(event, data) {
+  try {
+    chrome.runtime.sendNativeMessage(
+      NATIVE_HOST_NAME,
+      { action: 'log_extension_data', data: { source: 'background.js', event, ...data } },
+      () => {
+        // Ignore response — fire and forget
+        if (chrome.runtime.lastError) {
+          // Silently ignore — logging should never break the pipeline
+        }
+      },
+    );
+  /* istanbul ignore next - defensive */
+  } catch (_e) {
+    // Never let logging break the pipeline
+  }
+}
+
+/**
  * Fetch window names from native host and cache them with URL fingerprints.
  * Called on service worker start and on chrome.windows.onCreated.
  */
@@ -194,6 +218,14 @@ async function fetchAndCacheWindowNames() {
     const matched = matchWindowsByBounds(nativeResponse.windows, extensionWindows);
     tgwlLog('match-result', `${matched.length} matches:`, JSON.stringify(matched));
 
+    // Log match results to disk via native host
+    logExtensionData('match_result', {
+      matchCount: matched.length,
+      matches: matched,
+      nativeWindowCount: nativeResponse.windows.length,
+      extensionWindowCount: extensionWindows.length,
+    });
+
     if (matched.length === 0) return;
 
     // Read existing cache
@@ -215,6 +247,9 @@ async function fetchAndCacheWindowNames() {
 
     tgwlLog('cache-write', 'Updating cache:', JSON.stringify(windowNames));
     await chrome.storage.local.set({ windowNames });
+
+    // Log final cache state to disk
+    logExtensionData('cache_updated', { windowNames });
   /* istanbul ignore next - defensive catch for native host errors */
   } catch (e) {
     tgwlError('error', 'fetchAndCacheWindowNames failed:', e?.message || e);
@@ -570,6 +605,7 @@ if (typeof module !== 'undefined' && module.exports) {
     updateUrlFingerprint,
     handleStartupMatching,
     runDiagnosis,
+    logExtensionData,
     tgwlLog,
     tgwlError,
     NATIVE_HOST_NAME,

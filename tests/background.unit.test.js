@@ -1422,3 +1422,37 @@ describe('diagnose action', () => {
     expect(typeof background.runDiagnosis).toBe('function');
   });
 });
+
+describe('logExtensionData', () => {
+  test('should send log_extension_data to native host', () => {
+    mockChrome.runtime.sendNativeMessage.mockClear();
+    mockChrome.runtime.lastError = null;
+
+    background.logExtensionData('test_event', { key: 'value' });
+
+    expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalledWith(
+      'com.tabgroups.window_namer',
+      {
+        action: 'log_extension_data',
+        data: { source: 'background.js', event: 'test_event', key: 'value' },
+      },
+      expect.any(Function),
+    );
+  });
+
+  test('should not throw when native host returns error', () => {
+    mockChrome.runtime.sendNativeMessage.mockClear();
+    mockChrome.runtime.lastError = { message: 'host not found' };
+
+    expect(() => {
+      background.logExtensionData('test_event', { key: 'value' });
+      // Trigger the callback to simulate error response
+      const callback = mockChrome.runtime.sendNativeMessage.mock.calls[0][2];
+      callback(null);
+    }).not.toThrow();
+  });
+
+  test('should export logExtensionData function', () => {
+    expect(typeof background.logExtensionData).toBe('function');
+  });
+});
