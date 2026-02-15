@@ -525,7 +525,7 @@ describe('fetchAndCacheWindowNames', () => {
 
     expect(mockChrome.runtime.sendNativeMessage).toHaveBeenCalledWith(
       'com.tabgroups.window_namer',
-      { action: 'get_window_names' },
+      { action: 'get_window_names', browser: expect.any(String) },
       expect.any(Function),
     );
   });
@@ -1420,6 +1420,16 @@ describe('diagnose action', () => {
 
   test('should export runDiagnosis function', () => {
     expect(typeof background.runDiagnosis).toBe('function');
+  });
+});
+
+describe('detectBrowser', () => {
+  test('should return Google Chrome when no specific browser detected', () => {
+    expect(background.detectBrowser()).toBe('Google Chrome');
+  });
+
+  test('should export detectBrowser function', () => {
+    expect(typeof background.detectBrowser).toBe('function');
   });
 });
 

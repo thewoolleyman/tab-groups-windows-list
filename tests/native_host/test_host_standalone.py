@@ -103,6 +103,41 @@ class TestHostStandalone:
         response = json.loads(response_body)
         assert "success" in response
 
+    def test_host_uses_browser_from_request(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """host.py should use the browser field from the request."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "browser_test_home"),
+        }
+        request = {"action": "get_window_names", "browser": "Google Chrome"}
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=15,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+        stdout = result.stdout
+        assert len(stdout) >= 4
+        length = struct.unpack("<I", stdout[:4])[0]
+        response = json.loads(stdout[4 : 4 + length])
+        assert "success" in response
+
+        # Verify the debug log shows it used the browser from request
+        log_dir = tmp_path / "browser_test_home" / ".local" / "lib" / "tab-groups-window-namer"
+        log_file = log_dir / "debug.log"
+        if log_file.exists():
+            content = log_file.read_text()
+            assert "Using browser from request: Google Chrome" in content
+
     def test_host_rejects_unknown_action(
         self, isolated_host: Path,
     ) -> None:

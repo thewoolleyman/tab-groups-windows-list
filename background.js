@@ -15,6 +15,19 @@ const NATIVE_HOST_NAME = 'com.tabgroups.window_namer';
 const JACCARD_THRESHOLD = 0.6;
 
 /**
+ * Detect the current browser from the user agent string.
+ * Returns the macOS application name used by osascript.
+ * @returns {string} Browser application name
+ */
+function detectBrowser() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  if (/Brave/i.test(ua)) return 'Brave Browser';
+  if (/Edg\//i.test(ua)) return 'Microsoft Edge';
+  if (/Chromium/i.test(ua)) return 'Chromium';
+  return 'Google Chrome';
+}
+
+/**
  * Tagged logger for pipeline observability.
  * All messages use [TGWL:<stage>] prefix for easy filtering.
  * @param {string} stage - Pipeline stage identifier
@@ -183,11 +196,12 @@ function logExtensionData(event, data) {
  */
 async function fetchAndCacheWindowNames() {
   try {
-    tgwlLog('native-req', 'Sending get_window_names to', NATIVE_HOST_NAME);
+    const browser = detectBrowser();
+    tgwlLog('native-req', 'Sending get_window_names to', NATIVE_HOST_NAME, 'browser:', browser);
     const nativeResponse = await new Promise((resolve) => {
       chrome.runtime.sendNativeMessage(
         NATIVE_HOST_NAME,
-        { action: 'get_window_names' },
+        { action: 'get_window_names', browser },
         (response) => {
           if (chrome.runtime.lastError || !response) {
             tgwlError('native-res', 'Native host error:', chrome.runtime.lastError?.message || 'no response');
@@ -439,10 +453,11 @@ async function runDiagnosis() {
     diagnosis.cache.before = storedBefore.windowNames || {};
 
     // Call native host
+    const diagBrowser = detectBrowser();
     const nativeResponse = await new Promise((resolve) => {
       chrome.runtime.sendNativeMessage(
         NATIVE_HOST_NAME,
-        { action: 'get_window_names' },
+        { action: 'get_window_names', browser: diagBrowser },
         (response) => {
           if (chrome.runtime.lastError || !response) {
             diagnosis.nativeHost.error = chrome.runtime.lastError?.message || 'no response';
@@ -602,6 +617,7 @@ if (typeof module !== 'undefined' && module.exports) {
     handleStartupMatching,
     runDiagnosis,
     logExtensionData,
+    detectBrowser,
     tgwlLog,
     tgwlError,
     NATIVE_HOST_NAME,

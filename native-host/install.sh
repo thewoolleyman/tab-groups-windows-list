@@ -13,10 +13,12 @@
 
 set -euo pipefail
 
-EXTENSION_ID="gialhfelganamiclidkigjnjdkdbohcb"
+PUBLISHED_EXTENSION_ID="gialhfelganamiclidkigjnjdkdbohcb"
+DEV_EXTENSION_ID="napliahfgndaphcljddiolfgljacaapa"
 HOST_NAME="com.tabgroups.window_namer"
 INSTALL_DIR="$HOME/.local/lib/tab-groups-window-namer"
 HOST_PY_URL="https://raw.githubusercontent.com/thewoolleyman/tab-groups-windows-list/master/native-host/host.py"
+EXTENSION_NAME="Tab Groups & Windows List"
 
 # ------------------------------------------------------------------
 # macOS-only check
@@ -55,7 +57,8 @@ MANIFEST_JSON=$(cat <<EOF
   "path": "$INSTALL_DIR/host.py",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://$EXTENSION_ID/"
+    "chrome-extension://$PUBLISHED_EXTENSION_ID/",
+    "chrome-extension://$DEV_EXTENSION_ID/"
   ]
 }
 EOF

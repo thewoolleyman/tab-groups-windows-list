@@ -176,9 +176,12 @@ def _parse_osascript_output(raw: str) -> list[dict[str, Any]]:
     return windows
 
 
-def _get_window_names() -> list[dict[str, Any]]:
-    """Get window names for the detected browser."""
-    browser = _detect_browser()
+def _get_window_names(browser: str | None = None) -> list[dict[str, Any]]:
+    """Get window names for the specified or detected browser."""
+    if not browser:
+        browser = _detect_browser()
+    else:
+        _logger.debug("Using browser from request: %s", browser)
     cmd = _build_osascript_command(browser)
     _logger.debug("osascript command: %s", cmd[:200])
     result = subprocess.run(
@@ -215,7 +218,8 @@ def _handle_message(request: dict[str, Any]) -> dict[str, Any]:
         }
     if action == "get_window_names":
         try:
-            windows = _get_window_names()
+            browser = request.get("browser")
+            windows = _get_window_names(browser)
         except Exception as exc:
             _logger.exception("get_window_names failed")
             return {
