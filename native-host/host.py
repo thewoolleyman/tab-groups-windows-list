@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import struct
 import subprocess
 import sys
@@ -121,9 +122,68 @@ def _write_stdout_message(msg: dict[str, Any]) -> None:
 # -- Browser detection and window querying --
 
 
+def _get_browser_pids() -> set[int]:
+    """Build the browser's process tree from the parent PID.
+
+    The native messaging host is spawned as a child of the browser,
+    so os.getppid() gives the browser's main process PID. We then
+    collect all descendant PIDs to form the complete process tree.
+
+    Returns a set of all PIDs in the browser's process tree.
+    """
+    parent_pid = os.getppid()
+    _logger.debug("Browser parent PID: %d", parent_pid)
+    pids: set[int] = {parent_pid}
+    queue = [parent_pid]
+
+    while queue:
+        pid = queue.pop()
+        children: list[int] = []
+
+        if sys.platform == "linux":
+            # Try /proc first (faster, no subprocess)
+            children_file = Path(f"/proc/{pid}/task/{pid}/children")
+            try:
+                raw = children_file.read_text().strip()
+                if raw:
+                    children = [int(p) for p in raw.split()]
+            except (OSError, ValueError):
+                # Fallback to pgrep
+                children = _pgrep_children(pid)
+        else:
+            children = _pgrep_children(pid)
+
+        for child in children:
+            if child not in pids:
+                pids.add(child)
+                queue.append(child)
+
+    _logger.debug("Browser PID tree: %d PIDs total", len(pids))
+    return pids
+
+
+def _pgrep_children(pid: int) -> list[int]:
+    """Get direct child PIDs using pgrep -P."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-P", str(pid)],  # noqa: S603, S607
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return [int(p) for p in result.stdout.strip().splitlines()]
+    except (FileNotFoundError, ValueError):
+        pass
+    return []
+
+
 def _detect_browser() -> str:
     """Detect which Chromium browser is running."""
     _logger.debug("Detecting browser...")
+    parent_pid = os.getppid()
+    _logger.debug("Browser parent PID: %d", parent_pid)
     if sys.platform == "linux":
         return _detect_browser_linux()
     return _detect_browser_macos()
@@ -249,9 +309,32 @@ def _xdotool_window_geometry(wid: str) -> dict[str, int]:
     return bounds
 
 
+def _xdotool_window_pid(wid: str) -> int | None:
+    """Get the PID owning a window via xdotool."""
+    try:
+        result = subprocess.run(
+            ["xdotool", "getwindowpid", wid],  # noqa: S603, S607
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip())
+    except (FileNotFoundError, ValueError):
+        pass
+    return None
+
+
 def _get_window_names_linux() -> list[dict[str, Any]]:
-    """Get window names on Linux via xdotool and xprop."""
+    """Get window names on Linux via xdotool and xprop.
+
+    Filters windows to only those belonging to the browser's
+    process tree using PID-based filtering.
+    """
     _logger.debug("Using Linux window detection (xdotool/xprop)")
+    browser_pids = _get_browser_pids()
+
     try:
         result = subprocess.run(
             ["xdotool", "search", "--name", ""],  # noqa: S603, S607
@@ -268,6 +351,8 @@ def _get_window_names_linux() -> list[dict[str, Any]]:
         return []
 
     windows: list[dict[str, Any]] = []
+    total_count = 0
+    filtered_count = 0
     for raw_wid in result.stdout.strip().splitlines():
         wid = raw_wid.strip()
         if not wid:
@@ -275,6 +360,14 @@ def _get_window_names_linux() -> list[dict[str, Any]]:
         name = _xprop_window_name(wid)
         if not name:
             continue
+        total_count += 1
+
+        # PID-based filtering: only include browser windows
+        win_pid = _xdotool_window_pid(wid)
+        if win_pid is not None and win_pid not in browser_pids:
+            filtered_count += 1
+            continue
+
         windows.append({
             "name": name,
             "bounds": _xdotool_window_geometry(wid),
@@ -282,6 +375,10 @@ def _get_window_names_linux() -> list[dict[str, Any]]:
             "hasCustomName": False,
         })
 
+    _logger.debug(
+        "PID filter: kept %d of %d windows (filtered out %d)",
+        len(windows), total_count, filtered_count,
+    )
     _logger.debug("Linux: found %d windows", len(windows))
     return windows
 

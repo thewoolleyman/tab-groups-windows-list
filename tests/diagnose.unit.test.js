@@ -450,3 +450,17 @@ describe('parseArgs logic', () => {
     expect(result.output).toBeNull();
   });
 });
+
+describe('CDP debug pipeline files', () => {
+  it('cdp-diagnose.js is syntactically valid', () => {
+    expect(() => require('../scripts/cdp-diagnose.js')).not.toThrow();
+  });
+
+  it('debug-brave.sh exists and is executable', () => {
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'debug-brave.sh');
+    expect(fs.existsSync(scriptPath)).toBe(true);
+    const stat = fs.statSync(scriptPath);
+    // Check owner-execute bit
+    expect(stat.mode & 0o100).toBeTruthy();
+  });
+});

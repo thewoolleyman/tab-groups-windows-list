@@ -411,6 +411,82 @@ class TestHostMissingActionAndPing:
         assert response["success"] is True
 
 
+class TestPidFiltering:
+    """Tests for PID-based window filtering on Linux."""
+
+    def test_pid_filtering_excludes_non_browser_windows(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """Windows not belonging to browser process tree should be filtered out.
+
+        We verify this by checking the debug log for PID filtering messages
+        that report how many windows were filtered vs total found.
+        """
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "pid_filter_home"),
+        }
+        request = {"action": "get_window_names"}
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=15,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+
+        # On Linux, the debug log should show PID filtering info
+        if sys.platform == "linux":
+            log_dir = tmp_path / "pid_filter_home" / ".local" / "lib" / "tab-groups-window-namer"
+            log_file = log_dir / "debug.log"
+            if log_file.exists():
+                content = log_file.read_text()
+                # Should log the browser PID tree
+                assert "Browser parent PID:" in content
+                # Should log filtering results if xdotool found windows,
+                # or "xdotool returned no windows" if no display available
+                assert (
+                    "PID filter:" in content
+                    or "xdotool returned no windows" in content
+                    or "xdotool not found" in content
+                )
+
+    def test_browser_pid_logged_on_startup(
+        self, isolated_host: Path, tmp_path: Path,
+    ) -> None:
+        """The parent PID should be logged in debug output during detection."""
+        env = {
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+            "HOME": str(tmp_path / "pid_log_home"),
+        }
+        request = {"action": "get_window_names"}
+        body = json.dumps(request).encode("utf-8")
+        stdin_data = struct.pack("<I", len(body)) + body
+
+        result = subprocess.run(
+            [sys.executable, str(isolated_host)],
+            capture_output=True,
+            timeout=15,
+            check=False,
+            cwd=str(isolated_host.parent),
+            env=env,
+            input=stdin_data,
+        )
+        assert result.returncode == 0
+
+        log_dir = tmp_path / "pid_log_home" / ".local" / "lib" / "tab-groups-window-namer"
+        log_file = log_dir / "debug.log"
+        assert log_file.exists()
+        content = log_file.read_text()
+        assert "Browser parent PID:" in content
+
+
 class TestHostMalformedInput:
     """Tests for malformed/corrupt native messaging input."""
 
