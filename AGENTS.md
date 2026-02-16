@@ -177,16 +177,49 @@ bd sync               # Commit and push changes
 
 ---
 
+## MANDATORY: CI-Fix-First Policy
+
+**At the start of every session, check CI status:**
+
+```bash
+gh run list --limit 1 --json conclusion --jq '.[0].conclusion'
+```
+
+**If CI is failing on master, fixing it is the HIGHEST PRIORITY.** Do not start new features, refactors, or any other work until CI is green. Check which job failed:
+
+```bash
+gh run view --json jobs --jq '.jobs[] | "\(.name): \(.conclusion)"'
+```
+
+Then fix the failure, push, and confirm CI passes before proceeding with any other work.
+
+**Rationale:** A red CI means every subsequent push is flying blind. Broken CI is a blocking defect.
+
+---
+
+## MANDATORY: Quality Gates Before Push
+
+A pre-push git hook enforces quality gates automatically. If you bypass it or push manually, you MUST run these checks first:
+
+```bash
+npx jest --no-coverage          # JavaScript tests
+./scripts/verify-python.sh      # ruff + mypy + pytest (100% coverage)
+```
+
+**Never push code that fails quality gates.** The `/land` command enforces this automatically.
+
+---
+
 ## Landing the Plane (Session Completion)
 
-**Use `/land` to wrap up a work session.** This command automates the full landing sequence: stage, sync beads, commit, push, and verify clean state.
+**Use `/land` to wrap up a work session.** This command automates the full landing sequence: run quality gates, stage, sync beads, commit, push, monitor CI, and verify clean state.
 
-If you need to land manually, complete ALL steps below. Work is NOT complete until `git push` succeeds.
+If you need to land manually, complete ALL steps below. Work is NOT complete until `git push` succeeds AND CI is green.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
+2. **Run quality gates** - `npx jest --no-coverage` and `./scripts/verify-python.sh`
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
@@ -195,12 +228,16 @@ If you need to land manually, complete ALL steps below. Work is NOT complete unt
    git push
    git status  # MUST show "up to date with origin"
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+5. **Monitor CI** - Wait for CI to pass: `gh run watch --exit-status`
+6. **If CI fails** - Fix it, re-push, and repeat until green
+7. **Clean up** - Clear stashes, prune remote branches
+8. **Verify** - All changes committed, pushed, AND CI green
+9. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
+- Work is NOT complete until `git push` succeeds AND CI is green
+- NEVER push without running quality gates first
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+- If CI fails after push, fix and re-push until green

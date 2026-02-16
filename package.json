@@ -13,7 +13,8 @@
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run test && npm run test:e2e",
     "install:native-host": "bash native-host/install.sh",
-    "diagnose": "node scripts/diagnose.mjs"
+    "diagnose": "node scripts/diagnose.mjs",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "keywords": [
     "chrome",

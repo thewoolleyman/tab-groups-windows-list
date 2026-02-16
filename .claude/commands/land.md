@@ -10,7 +10,7 @@ description: "Land the plane: commit all changes, push, and confirm clean state"
 
 You are wrapping up a work session. Your job is to leave the repo in a clean, committed, pushed state with nothing left dangling.
 
-**The plane is NOT landed until `git push` succeeds.** Do not stop before pushing. Do not say "ready to push when you are" -- that is a failure. YOU must push.
+**The plane is NOT landed until `git push` succeeds AND CI is green.** Do not stop before pushing. Do not say "ready to push when you are" -- that is a failure. YOU must push. YOU must confirm CI passes.
 
 ## Steps
 
@@ -18,7 +18,7 @@ Follow these steps IN ORDER. Do not skip any step. Do not ask for confirmation b
 
 ### 1. Check for uncommitted work
 
-Run `git status` and `git diff --stat` to see what's changed. If there are NO changes (working tree clean, nothing untracked), skip to step 7 and report "Already clean -- nothing to land."
+Run `git status` and `git diff --stat` to see what's changed. If there are NO changes (working tree clean, nothing untracked), skip to step 6 (quality gates) — quality gates still run to catch pre-existing CI failures.
 
 ### 2. Stage changes
 
@@ -46,10 +46,31 @@ Format:
 
 <optional body with details if the change is non-trivial>
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
-### 5. Push -- NON-NEGOTIABLE
+### 5. Run quality gates -- MANDATORY BEFORE PUSH
+
+**Do NOT push until these pass.** Run the following checks and report results:
+
+```bash
+# JavaScript tests
+npx jest --no-coverage
+
+# Python quality gates (ruff + mypy + pytest with 100% coverage)
+./scripts/verify-python.sh
+```
+
+**If any check fails:**
+1. STOP — do not push
+2. Report which check failed and the error output
+3. Fix the failure (edit code, fix lint errors, update tests)
+4. Re-run the failing check to confirm the fix
+5. Return to step 2 (stage the fix, re-commit, re-run gates)
+
+**Do NOT push code that fails quality gates.** This is the most important step.
+
+### 6. Push -- NON-NEGOTIABLE
 
 Pull with rebase first, then push to the remote tracking branch:
 
@@ -60,7 +81,24 @@ git push
 
 If the push fails, resolve the issue and retry. Do NOT force push. If it cannot be resolved, report the specific error.
 
-### 6. Clean up git state
+### 7. Monitor CI -- MANDATORY
+
+After pushing, wait for CI to complete and verify it passes:
+
+```bash
+gh run watch --exit-status
+```
+
+**If CI fails:**
+1. Check which job failed: `gh run view --json jobs --jq '.jobs[] | "\(.name): \(.conclusion)"'`
+2. Get failure details from the logs
+3. Fix the failure locally
+4. Return to step 2 (stage, commit, verify, push again)
+5. Repeat until CI is green
+
+**The plane is NOT landed until CI is green.** A push with failing CI is not a landing — it's a crash.
+
+### 8. Clean up git state
 
 ```
 git stash list
@@ -68,13 +106,14 @@ git stash list
 
 If there are stale stashes, note them in the summary (do not drop them without being asked).
 
-### 7. Confirm clean state
+### 9. Confirm clean state
 
 Run `git status` one final time. Report:
 
 - The commit hash and message
 - The branch and remote
 - Whether the working tree is clean
+- CI status (pass/fail)
 - Any files that were intentionally skipped
 
 ### Output format
@@ -86,6 +125,7 @@ Landed. <commit-hash> on <branch> -> <remote>
   <one-line commit message>
   <N> files changed
   Working tree: clean
+  CI: green
 ```
 
 Or if there were issues:
@@ -94,6 +134,7 @@ Or if there were issues:
 Partial landing:
   Committed: <hash>
   Push: failed (behind remote -- pull needed)
+  CI: failed (Python Quality Gates)
   Skipped: .env, build/output.bin
   Stale stashes: 2 (run `git stash list` to review)
 ```

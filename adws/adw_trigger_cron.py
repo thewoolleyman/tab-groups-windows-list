@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Cron trigger for autonomous workflow execution (FR21, FR22).
 
 Polls Beads for open issues with dispatchable workflow tags,
@@ -302,6 +301,7 @@ import click  # noqa: E402
     help="Max poll cycles (default: unlimited in --poll mode, 1 otherwise)",
 )
 def main(
+    *,
     poll: bool,
     poll_interval: int,
     dry_run: bool,
@@ -336,5 +336,5 @@ def main(
         sys.exit(1)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

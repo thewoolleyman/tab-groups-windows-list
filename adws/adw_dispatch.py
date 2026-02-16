@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Workflow dispatch policy enforcer (FR19, Decision 5).
 
 Reads a Beads issue, extracts the workflow tag, validates
@@ -314,7 +313,7 @@ import click  # noqa: E402
     is_flag=True,
     help="List available dispatchable workflows",
 )
-def main(issue: str | None, list_wf: bool) -> None:
+def main(issue: str | None, *, list_wf: bool) -> None:
     """Dispatch a workflow based on a Beads issue tag."""
     if list_wf:
         from adws.workflows import (  # noqa: PLC0415
@@ -348,5 +347,5 @@ def main(issue: str | None, list_wf: bool) -> None:
         sys.exit(1)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

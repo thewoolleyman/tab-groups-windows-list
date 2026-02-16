@@ -1,0 +1,22 @@
+#!/bin/bash
+# Pre-push hook: runs quality gates before allowing push.
+# Prevents broken code from reaching the remote.
+#
+# Install: git config core.hooksPath .githooks
+set -e
+
+echo ">> Pre-push: running quality gates..."
+
+echo ">> JavaScript tests..."
+npx jest --no-coverage --silent 2>&1 || {
+    echo "BLOCKED: Jest tests failed. Fix before pushing."
+    exit 1
+}
+
+echo ">> Python quality gates (ruff + mypy + pytest)..."
+./scripts/verify-python.sh 2>&1 || {
+    echo "BLOCKED: Python quality gates failed. Fix before pushing."
+    exit 1
+}
+
+echo ">> All quality gates passed. Push allowed."

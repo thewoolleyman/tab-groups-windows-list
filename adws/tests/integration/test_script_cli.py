@@ -147,12 +147,12 @@ class TestTriageCLI:
 
     def test_dry_run_with_candidates(self) -> None:
         """--dry-run lists failed issue details."""
+        from adws.adw_modules.steps.triage import (  # noqa: PLC0415
+            FailureMetadata,
+        )
         from adws.adw_triage import (  # noqa: PLC0415
             TriageCandidate,
             main,
-        )
-        from adws.adw_modules.steps.triage import (  # noqa: PLC0415
-            FailureMetadata,
         )
 
         runner = click.testing.CliRunner()
@@ -222,6 +222,38 @@ class TestTriageCLI:
         mock_loop.assert_called_once_with(
             poll_interval_seconds=300.0,
             max_cycles=1,
+        )
+
+    def test_poll_mode_passes_max_cycles(self) -> None:
+        """--poll --max-cycles=2 passes cycles through without override."""
+        from adws.adw_triage import (  # noqa: PLC0415
+            TriageCycleResult,
+            main,
+        )
+
+        runner = click.testing.CliRunner()
+        with patch(
+            "adws.adw_triage.run_triage_loop",
+        ) as mock_loop:
+            mock_loop.return_value = [
+                TriageCycleResult(
+                    issues_found=0,
+                    tier1_cleared=0,
+                    tier1_pending=0,
+                    tier2_adjusted=0,
+                    tier2_split=0,
+                    tier3_escalated=0,
+                    triage_errors=0,
+                    errors=[],
+                ),
+            ]
+            result = runner.invoke(
+                main, ["--poll", "--max-cycles=2"],
+            )
+        assert result.exit_code == 0
+        mock_loop.assert_called_once_with(
+            poll_interval_seconds=300.0,
+            max_cycles=2,
         )
 
     def test_errors_cause_nonzero_exit(self) -> None:
