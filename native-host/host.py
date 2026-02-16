@@ -368,11 +368,31 @@ def _get_window_names_linux() -> list[dict[str, Any]]:
             filtered_count += 1
             continue
 
+        # On Linux, Chrome sets _NET_WM_NAME to "<tab title> - <browser>".
+        # If the window name doesn't end with a known browser suffix,
+        # it was renamed (custom name). Extract the tab title by stripping
+        # the suffix when present.
+        browser_suffixes = (
+            " - Google Chrome",
+            " - Google Chrome for Testing",
+            " - Chromium",
+            " - Brave",
+            " - Brave Browser",
+            " - Microsoft Edge",
+        )
+        active_tab_title = name
+        has_custom = True
+        for suffix in browser_suffixes:
+            if name.endswith(suffix):
+                active_tab_title = name[: -len(suffix)]
+                has_custom = False
+                break
+
         windows.append({
             "name": name,
             "bounds": _xdotool_window_geometry(wid),
-            "activeTabTitle": name,
-            "hasCustomName": False,
+            "activeTabTitle": active_tab_title,
+            "hasCustomName": has_custom,
         })
 
     _logger.debug(
