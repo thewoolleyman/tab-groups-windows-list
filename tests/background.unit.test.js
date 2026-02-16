@@ -1485,6 +1485,31 @@ describe('detectBrowser', () => {
     expect(background.detectBrowser()).toBe('Brave Browser');
   });
 
+  test('should detect Brave via navigator.brave API (real Brave UA has no Brave string)', () => {
+    // Brave's actual UA is Chrome-like: no "Brave" substring
+    // But Brave exposes navigator.brave object
+    Object.defineProperty(global, 'navigator', {
+      value: {
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        brave: { isBrave: () => Promise.resolve(true) },
+      },
+      writable: true,
+      configurable: true,
+    });
+    expect(background.detectBrowser()).toBe('Brave Browser');
+  });
+
+  test('should return Google Chrome when navigator.brave is absent and UA is plain Chrome', () => {
+    Object.defineProperty(global, 'navigator', {
+      value: {
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      writable: true,
+      configurable: true,
+    });
+    expect(background.detectBrowser()).toBe('Google Chrome');
+  });
+
   test('should export detectBrowser function', () => {
     expect(typeof background.detectBrowser).toBe('function');
   });

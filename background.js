@@ -20,6 +20,8 @@ const JACCARD_THRESHOLD = 0.6;
  * @returns {string} Browser application name
  */
 function detectBrowser() {
+  // Brave exposes navigator.brave API; its UA string is Chrome-like (no "Brave")
+  if (typeof navigator !== 'undefined' && navigator.brave) return 'Brave Browser';
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
   if (/Brave/i.test(ua)) return 'Brave Browser';
   if (/Edg\//i.test(ua)) return 'Microsoft Edge';
