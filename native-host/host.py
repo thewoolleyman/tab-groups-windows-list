@@ -124,6 +124,13 @@ def _write_stdout_message(msg: dict[str, Any]) -> None:
 def _detect_browser() -> str:
     """Detect which Chromium browser is running."""
     _logger.debug("Detecting browser...")
+    if sys.platform == "linux":
+        return _detect_browser_linux()
+    return _detect_browser_macos()
+
+
+def _detect_browser_macos() -> str:
+    """Detect browser on macOS via osascript."""
     result = subprocess.run(
         ["osascript", "-e",
          'tell application "System Events" to '
@@ -138,6 +145,29 @@ def _detect_browser() -> str:
         _logger.debug("Detected: Brave Browser")
         return "Brave Browser"
     _logger.debug("Detected: Google Chrome")
+    return "Google Chrome"
+
+
+def _detect_browser_linux() -> str:
+    """Detect browser on Linux via process list."""
+    browser_map = [
+        ("brave", "Brave Browser"),
+        ("chrome", "Google Chrome"),
+        ("chromium", "Chromium"),
+        ("microsoft-edge", "Microsoft Edge"),
+    ]
+    for proc_name, display_name in browser_map:
+        result = subprocess.run(
+            ["pgrep", "-f", proc_name],  # noqa: S603, S607
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            _logger.debug("Detected: %s", display_name)
+            return display_name
+    _logger.debug("Detected: Google Chrome (default)")
     return "Google Chrome"
 
 
@@ -176,12 +206,96 @@ def _parse_osascript_output(raw: str) -> list[dict[str, Any]]:
     return windows
 
 
+def _xprop_window_name(wid: str) -> str:
+    """Get window name for a window ID via xprop."""
+    name_result = subprocess.run(
+        ["xprop", "-id", wid, "_NET_WM_NAME"],  # noqa: S603, S607
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if name_result.returncode != 0:
+        return ""
+    parts = name_result.stdout.split("=", 1)
+    if len(parts) < 2:  # noqa: PLR2004
+        return ""
+    return parts[1].strip().strip('"')
+
+
+def _xdotool_window_geometry(wid: str) -> dict[str, int]:
+    """Get window bounds for a window ID via xdotool."""
+    geo_result = subprocess.run(
+        ["xdotool", "getwindowgeometry", "--shell", wid],  # noqa: S603, S607
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    bounds: dict[str, int] = {}
+    if geo_result.returncode != 0:
+        return bounds
+    key_map = {"X": "x", "Y": "y", "WIDTH": "width", "HEIGHT": "height"}
+    for line in geo_result.stdout.splitlines():
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        mapped = key_map.get(key.strip())
+        if mapped:
+            try:
+                bounds[mapped] = int(val.strip())
+            except ValueError:
+                pass
+    return bounds
+
+
+def _get_window_names_linux() -> list[dict[str, Any]]:
+    """Get window names on Linux via xdotool and xprop."""
+    _logger.debug("Using Linux window detection (xdotool/xprop)")
+    try:
+        result = subprocess.run(
+            ["xdotool", "search", "--name", ""],  # noqa: S603, S607
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError:
+        _logger.warning("xdotool not found")
+        return []
+    if result.returncode != 0 or not result.stdout.strip():
+        _logger.debug("xdotool returned no windows")
+        return []
+
+    windows: list[dict[str, Any]] = []
+    for raw_wid in result.stdout.strip().splitlines():
+        wid = raw_wid.strip()
+        if not wid:
+            continue
+        name = _xprop_window_name(wid)
+        if not name:
+            continue
+        windows.append({
+            "name": name,
+            "bounds": _xdotool_window_geometry(wid),
+            "activeTabTitle": name,
+            "hasCustomName": False,
+        })
+
+    _logger.debug("Linux: found %d windows", len(windows))
+    return windows
+
+
 def _get_window_names(browser: str | None = None) -> list[dict[str, Any]]:
     """Get window names for the specified or detected browser."""
     if not browser:
         browser = _detect_browser()
     else:
         _logger.debug("Using browser from request: %s", browser)
+
+    if sys.platform == "linux":
+        return _get_window_names_linux()
+
     cmd = _build_osascript_command(browser)
     _logger.debug("osascript command: %s", cmd[:200])
     result = subprocess.run(

@@ -21,12 +21,13 @@ HOST_PY_URL="https://raw.githubusercontent.com/thewoolleyman/tab-groups-windows-
 EXTENSION_NAME="Tab Groups & Windows List"
 
 # ------------------------------------------------------------------
-# macOS-only check
+# Platform detection
 # ------------------------------------------------------------------
-if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "Window name sync is macOS only."
-    echo "This feature requires macOS to read browser window names via osascript."
-    exit 0
+PLATFORM="$(uname -s)"
+if [[ "$PLATFORM" != "Darwin" && "$PLATFORM" != "Linux" ]]; then
+    echo "Unsupported platform: $PLATFORM"
+    echo "This installer supports macOS and Linux only."
+    exit 1
 fi
 
 # ------------------------------------------------------------------
@@ -68,8 +69,13 @@ EOF
 # Browser detection and manifest installation
 # ------------------------------------------------------------------
 # Parallel arrays instead of associative array (bash 3.2 compat)
-BROWSER_NAMES="Google Chrome|Brave Browser|Microsoft Edge|Chromium"
-BROWSER_DIRS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts|$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts|$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts|$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
+if [[ "$PLATFORM" == "Darwin" ]]; then
+    BROWSER_NAMES="Google Chrome|Brave Browser|Microsoft Edge|Chromium"
+    BROWSER_DIRS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts|$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts|$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts|$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
+else
+    BROWSER_NAMES="Google Chrome|Brave Browser|Microsoft Edge|Chromium"
+    BROWSER_DIRS="$HOME/.config/google-chrome/NativeMessagingHosts|$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts|$HOME/.config/microsoft-edge/NativeMessagingHosts|$HOME/.config/chromium/NativeMessagingHosts"
+fi
 
 SUCCESS_COUNT=0
 FAIL_COUNT=0

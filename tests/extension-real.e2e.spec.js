@@ -5,21 +5,21 @@
  * these tests load the actual extension in Chrome and navigate
  * to chrome-extension://{extensionId}/popup.html with real APIs.
  *
- * macOS-only tests are conditionally skipped on Linux CI.
+ * Native host tests require macOS or Linux.
  */
 
 const { test, expect } = require("./fixtures");
 const os = require("os");
 
-const isMacOS = os.platform() === "darwin";
+const isSupported = os.platform() === "darwin" || os.platform() === "linux";
 
 // =============================================================================
-// macOS-only: Real extension with native host pipeline
+// Native host tests: macOS and Linux with native host pipeline
 // =============================================================================
 
-test.describe("Real extension - macOS native host", () => {
-  // Skip entire block on non-macOS (Linux CI)
-  test.skip(!isMacOS, "Native host tests only run on macOS");
+test.describe("Real extension - native host", () => {
+  // Skip on unsupported platforms
+  test.skip(!isSupported, "Native host tests only run on macOS and Linux");
 
   test("extension should load and popup should render with real data", async ({
     context,

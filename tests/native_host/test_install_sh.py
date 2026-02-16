@@ -316,48 +316,137 @@ class TestInstallShE2EMacOS:
 class TestInstallShE2ELinux:
     """E2E tests for install.sh on Linux.
 
-    On Linux, the script should print a friendly message
-    and exit cleanly without installing anything.
+    These tests create a fake HOME with simulated browser
+    config directories, run install.sh with a local file://
+    URL (no network), and verify manifests are created in
+    ~/.config/... paths.
     """
 
-    @pytest.mark.skipif(
-        sys.platform != "linux",
-        reason="Linux-only test",
-    )
-    def test_prints_macos_only_message(
-        self,
-    ) -> None:
-        """On Linux, prints macOS-only message and exits 0."""
-        result = subprocess.run(  # noqa: S603
-            ["/bin/bash", INSTALL_SH],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0
-        assert "macOS only" in result.stdout
-
-    @pytest.mark.skipif(
-        sys.platform != "linux",
-        reason="Linux-only test",
-    )
-    def test_does_not_create_files(
-        self, tmp_path: Path,
-    ) -> None:
-        """On Linux, no files are created."""
+    @pytest.fixture
+    def sandbox(self, tmp_path: Path) -> dict[str, Path]:
+        """Create a sandboxed HOME with fake Linux browser dirs."""
         home = tmp_path / "home"
         home.mkdir()
 
+        # Create browser config parent dirs
+        chrome_dir = home / ".config" / "google-chrome"
+        chrome_dir.mkdir(parents=True)
+
+        brave_dir = (
+            home / ".config" / "BraveSoftware" / "Brave-Browser"
+        )
+        brave_dir.mkdir(parents=True)
+
+        local_host_py = tmp_path / "host.py"
+        local_host_py.write_text(
+            "#!/usr/bin/env python3\n# test host.py\n"
+        )
+
+        return {
+            "home": home,
+            "chrome_dir": chrome_dir,
+            "brave_dir": brave_dir,
+            "local_host_py": local_host_py,
+        }
+
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="Linux-only test",
+    )
+    def test_installs_manifest_for_detected_browsers(
+        self, sandbox: dict[str, Path], tmp_path: Path,
+    ) -> None:
+        """Installs manifest JSON for each detected browser on Linux."""
+        home = sandbox["home"]
+        local_host_py = sandbox["local_host_py"]
+
+        modified_script = _create_sandboxed_script(
+            INSTALL_SH,
+            home=str(home),
+            host_py_url=local_host_py.as_uri(),
+        )
+        script_path = tmp_path / "install_test.sh"
+        script_path.write_text(modified_script)
+        script_path.chmod(
+            script_path.stat().st_mode | stat.S_IXUSR,
+        )
+
         result = subprocess.run(  # noqa: S603
-            ["/bin/bash", INSTALL_SH],
+            ["/bin/bash", str(script_path)],
             capture_output=True,
             text=True,
             check=False,
             env={**os.environ, "HOME": str(home)},
         )
+
+        assert result.returncode == 0, (
+            f"install.sh failed:\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
+        )
+
+        # Verify host.py was downloaded
+        installed_host = (
+            home / ".local" / "lib"
+            / "tab-groups-window-namer" / "host.py"
+        )
+        assert installed_host.is_file()
+        assert os.access(installed_host, os.X_OK)
+
+        # Verify Chrome manifest
+        chrome_manifest = (
+            home / ".config" / "google-chrome"
+            / "NativeMessagingHosts"
+            / "com.tabgroups.window_namer.json"
+        )
+        assert chrome_manifest.is_file(), "Chrome manifest not created"
+        manifest_data = json.loads(chrome_manifest.read_text())
+        assert manifest_data["name"] == "com.tabgroups.window_namer"
+        assert manifest_data["type"] == "stdio"
+
+        # Verify Brave manifest
+        brave_manifest = (
+            home / ".config" / "BraveSoftware" / "Brave-Browser"
+            / "NativeMessagingHosts"
+            / "com.tabgroups.window_namer.json"
+        )
+        assert brave_manifest.is_file(), "Brave manifest not created"
+
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="Linux-only test",
+    )
+    def test_skips_uninstalled_browsers(
+        self, tmp_path: Path,
+    ) -> None:
+        """Browsers without config dirs are skipped on Linux."""
+        home = tmp_path / "home"
+        home.mkdir()
+
+        local_host_py = tmp_path / "host.py"
+        local_host_py.write_text("#!/usr/bin/env python3\n")
+
+        modified_script = _create_sandboxed_script(
+            INSTALL_SH,
+            home=str(home),
+            host_py_url=local_host_py.as_uri(),
+        )
+        script_path = tmp_path / "install_test.sh"
+        script_path.write_text(modified_script)
+        script_path.chmod(
+            script_path.stat().st_mode | stat.S_IXUSR,
+        )
+
+        result = subprocess.run(  # noqa: S603
+            ["/bin/bash", str(script_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "HOME": str(home)},
+        )
+
         assert result.returncode == 0
-        local_dir = home / ".local" / "lib"
-        assert not local_dir.exists()
+        assert "No Chromium browsers" in result.stdout
 
 
 class TestInstallShViaNpmRun:
@@ -368,8 +457,8 @@ class TestInstallShViaNpmRun:
     """
 
     @pytest.mark.skipif(
-        sys.platform != "darwin",
-        reason="macOS-only test",
+        sys.platform not in ("darwin", "linux"),
+        reason="macOS/Linux-only test",
     )
     def test_npm_run_does_not_error(
         self, tmp_path: Path,
