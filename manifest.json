@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tab Groups & Windows List",
-  "version": "1.2.57",
+  "version": "1.2.58",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6RbLOXuRs5Xu8vfF47aUk43VimV1RKJgRc9hN5+66WD+FMpOgb+a3REt7oV1mcvCTJtIg8v4zlqJ7MNA061J1pCFwqg5v3GOZaGdrcmG61SHZHi6C/FpFIpi2EHqDjZW6pPG4jke/oL8QiS1oG9rfe8a7RrWVfF4Qi90jnBJBsex5xBgaavU6SBLe4lsW/nVnVdDfGM7THiIIkFw9GhoMKLUMRGy8qksgfQk5jg6JOjkBLAMBi58SybJimiRdRJDdpTWv4MEkdwbUMPVVafCNf/Ba9QXOYfa9WHyh4GH5nqkInfbGqBHkbMJD8oZW/SaUT5wQfse3wj1QBFKVmLKSwIDAQAB",
   "description": "A 3-level expandable hierarchy of Windows, Tab Groups, and Tabs.",
   "permissions": [
