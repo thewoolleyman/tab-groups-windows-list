@@ -5,6 +5,8 @@
 # Install: git config core.hooksPath .githooks
 set -e
 
+eval "$(mise activate bash)" 2>/dev/null || true
+
 echo ">> Pre-push: running quality gates..."
 
 echo ">> JavaScript tests..."

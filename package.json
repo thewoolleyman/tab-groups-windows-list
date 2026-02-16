@@ -14,7 +14,8 @@
     "test:all": "npm run test && npm run test:e2e",
     "install:native-host": "bash native-host/install.sh",
     "diagnose": "node scripts/diagnose.mjs",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .githooks",
+    "postinstall": "playwright install chromium"
   },
   "keywords": [
     "chrome",
