@@ -86,6 +86,8 @@ All of this just to read or write a window title string.
 
 ### Related
 
+- **Canonical Chromium issue:** https://issues.chromium.org/issues/40174035 — "Programmatic access to window-name from chrome.windows extension API"
+- Related: https://issues.chromium.org/issues/40944834, https://issues.chromium.org/issues/40236151
 - macOS: Window > Name Window (built-in Chrome feature, not exposed to extensions)
 - Firefox: No equivalent API exists there either, making this a chance for Chrome to lead.
 

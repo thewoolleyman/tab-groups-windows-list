@@ -1,10 +1,13 @@
 # Comment for Chromium Issues
 
-> Paste this comment on both issues:
-> - https://issues.chromium.org/issues/40944834
-> - https://issues.chromium.org/issues/40236151
+> **Canonical issue:** https://issues.chromium.org/issues/40174035
+> "Programmatic access to window-name from chrome.windows extension API"
 >
-> Then star both issues.
+> Paste this comment there and star it.
+>
+> Related/duplicate issues (star these too):
+> - https://issues.chromium.org/issues/40944834 — "expose window names via Chrome extension API"
+> - https://issues.chromium.org/issues/40236151 — "Use chrome.windows API to set window name"
 
 ---
 
