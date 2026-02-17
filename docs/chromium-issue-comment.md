@@ -37,9 +37,9 @@ void SetWindowUserTitle(const std::string& user_title);
 
 This is the value set via the existing right-click → "Name Window" menu (shipped since Chrome 88/90).
 
-**`CreateWindowValueForExtension`** (`chrome/browser/extensions/extension_tab_util.cc`) constructs the `chrome.windows.Window` dict. It currently populates `id`, `focused`, `top`, `left`, `width`, `height`, `tabs`, `incognito`, `type`, `state`, `alwaysOnTop` — but does **not** include `user_title_`. Adding it is one line:
+**`CreateWindowValueForExtension`** (`chrome/browser/extensions/browser_extension_window_controller.cc`) constructs the `chrome.windows.Window` dict. It currently populates `id`, `focused`, `top`, `left`, `width`, `height`, `tabs`, `incognito`, `type`, `state`, `alwaysOnTop` — but does **not** include `user_title_`. Adding it is one line:
 ```cpp
-window_value["title"] = browser->user_title();
+dict.Set("title", browser->user_title());
 ```
 
 **`windows.json`** schema would need a new optional string property on the `Window` type and a corresponding parameter in `update()`.
@@ -50,13 +50,24 @@ window_value["title"] = browser->user_title();
 
 Comment #21 on this thread raises the key question: **which permission should gate access to window titles?**
 
-The options as I see them:
+To answer this, it helps to compare what `user_title_` actually is versus what the existing `tabs` permission protects:
 
-1. **Reuse `"tabs"` permission** — The `tabs` permission already gates `tabs.Tab.url`, `tabs.Tab.title`, and `tabs.Tab.favIconUrl` via the `ScrubTabBehavior` mechanism in `extension_tab_util.cc`. Window titles (which often contain the active tab's page title) are arguably the same sensitivity class. **Downside**: The `tabs` permission is already overloaded and triggers a broad install warning ("Read your browsing history"). Adding window names wouldn't change the warning text but further broadens what `tabs` grants.
+| | `tab.title` (gated by `"tabs"`) | `window.user_title_` (proposed) |
+|---|---|---|
+| **Source** | `<title>` element of the active web page | Explicitly typed by the user via Chrome's "Name Window" menu |
+| **Privacy risk** | Leaks browsing history (e.g. "Gmail - john@example.com") | Contains only what the user deliberately typed (e.g. "Work") |
+| **Changes automatically** | Yes, on every navigation | No, only when user manually renames |
+| **Default value** | Always populated from page content | Empty string (most windows have no title) |
 
-2. **New `"windowNames"` permission** — A dedicated permission with a narrow warning like "Read and change your window names". **Downside**: Creates a third permission in the windows/tabs space (alongside `tabs` and the implicit windows access). Comment #21 specifically raised concern about a "third permission." However, this is the cleanest approach because window names are user-chosen labels, categorically different from browsing-history-derived tab titles.
+Every other `Window` property — `id`, `bounds`, `state`, `type`, `focused`, `incognito`, `alwaysOnTop` — is already available with **no permission at all**. There is no `"windows"` entry in `_permission_features.json`; `chrome.windows.getAll()` is implicit.
 
-3. **No additional permission** — Window names are user-assigned labels with no browsing-history sensitivity. Unlike `tabs.Tab.title` (which leaks page titles and therefore visited URLs), `user_title_` is explicitly set by the user and contains only what they typed. An extension that can already call `chrome.windows.getAll()` (no permission needed) can see window IDs, bounds, and state — the user-assigned name is arguably less sensitive than those. **This is my recommendation**: expose `title` (read-only) with no additional permission, and gate `chrome.windows.update({title: ...})` (write) behind the existing implicit windows access.
+The three options as I see them:
+
+1. **Reuse `"tabs"` permission** — The `tabs` permission already gates `tabs.Tab.url`, `tabs.Tab.title`, and `tabs.Tab.favIconUrl` via the `ScrubTabBehavior` / `GetScrubTabBehavior()` mechanism in `extension_tab_util.cc`. **Downside**: Semantically wrong — window names aren't tab data. This would force extensions that only need window names to request `"tabs"`, which warns users about reading browsing history. That's misleading for a user-set label.
+
+2. **New `"windowNames"` permission** — A dedicated permission with a narrow warning like "Read and change your window names". **Downside**: Creates a third permission in the windows/tabs space. Comment #21 specifically raised concern about a "third permission." Also likely overkill given that `user_title_` is user-set metadata, not browsing-derived content.
+
+3. **No additional permission (my recommendation)** — `user_title_` is user-intentional metadata, categorically the same as `state`, `bounds`, or `alwaysOnTop` — all of which are ungated. An extension that can already see window IDs, bounds, incognito status, and focus state should be able to see a label the user explicitly typed. Expose `title` (read-only) with no additional permission; gate `chrome.windows.update({title: ...})` (write) behind the existing implicit windows access.
 
 ### Proposed path forward
 
