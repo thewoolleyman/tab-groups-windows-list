@@ -13,7 +13,7 @@
 
 ## The Comment
 
-*Disclosure: This analysis was AI-assisted (Claude). The Chromium source references and conclusions have been verified by the poster but should be independently confirmed before acting on them.*
+*Disclosure: This analysis was AI-generated (Claude). The Chromium source references and conclusions should be independently verified before acting on them.*
 
 Adding a +1 with implementation analysis and a concrete proposal to unblock this.
 
