@@ -2248,4 +2248,44 @@ describe('window focus order tracking', () => {
     // Window 2 keeps its position, stale IDs removed, window 5 appended
     expect(setCall.windowFocusOrder).toEqual([2, 5]);
   });
+
+  test('getWindowFocusOrder should wait for initFocusOrder before responding', async () => {
+    // Simulate: initFocusOrder is still loading from storage (slow async)
+    // but a getWindowFocusOrder message arrives immediately
+    let resolveStorage;
+    mockChrome.storage.local.get.mockReturnValue(
+      new Promise(resolve => { resolveStorage = resolve; })
+    );
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+
+    // Start initFocusOrder (it will be pending)
+    const initPromise = background.initFocusOrder();
+
+    // Before initFocusOrder completes, send getWindowFocusOrder message
+    const listener = initialListeners.runtimeMessage[0];
+    const sendResponse = jest.fn();
+    const result = listener({ action: 'getWindowFocusOrder' }, {}, sendResponse);
+
+    // If the handler is async (returns true), it should wait for init
+    // If sync (returns false), sendResponse should still have correct data
+    if (result === true) {
+      // Async path: resolve storage, let init complete, then check
+      resolveStorage({ windowFocusOrder: [3, 1, 2] });
+      await initPromise;
+      // Give the async handler time to resolve
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } else {
+      // Sync path (current behavior): resolve storage, complete init
+      resolveStorage({ windowFocusOrder: [3, 1, 2] });
+      await initPromise;
+    }
+
+    // The response should contain the correct focus order, not an empty array
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        focusOrder: [3, 1, 2],
+      })
+    );
+  });
 });

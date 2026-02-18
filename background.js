@@ -380,6 +380,7 @@ async function handleStartupMatching() {
 // --- Window focus order tracking for MRU sort ---
 
 let windowFocusOrder = []; // Most recent window ID first
+let focusOrderReady = null; // Promise that resolves when initFocusOrder completes
 
 /**
  * Initialize focus order from storage.
@@ -387,30 +388,36 @@ let windowFocusOrder = []; // Most recent window ID first
  * re-seed with the current window IDs in default order.
  */
 async function initFocusOrder() {
-  try {
-    const stored = await chrome.storage.local.get('windowFocusOrder');
-    const storedOrder = stored.windowFocusOrder || [];
-    const wins = await chrome.windows.getAll();
-    const currentIds = new Set(wins.map(w => w.id));
+  const p = (async () => {
+    try {
+      const stored = await chrome.storage.local.get('windowFocusOrder');
+      const storedOrder = stored.windowFocusOrder || [];
+      const wins = await chrome.windows.getAll();
+      const currentIds = new Set(wins.map(w => w.id));
 
-    // Check if any stored IDs are still valid
-    const hasValidIds = storedOrder.some(id => currentIds.has(id));
+      // Check if any stored IDs are still valid
+      const hasValidIds = storedOrder.some(id => currentIds.has(id));
 
-    if (storedOrder.length === 0 || !hasValidIds) {
-      // No stored order or all IDs are stale — seed with current windows
-      windowFocusOrder = wins.map(w => w.id);
-    } else {
-      // Keep valid IDs in their stored order, append any new windows at the end
-      const validOrder = storedOrder.filter(id => currentIds.has(id));
-      const validSet = new Set(validOrder);
-      const newIds = wins.filter(w => !validSet.has(w.id)).map(w => w.id);
-      windowFocusOrder = [...validOrder, ...newIds];
+      if (storedOrder.length === 0 || !hasValidIds) {
+        // No stored order or all IDs are stale — seed with current windows
+        windowFocusOrder = wins.map(w => w.id);
+      } else {
+        // Keep valid IDs in their stored order, append any new windows at the end
+        const validOrder = storedOrder.filter(id => currentIds.has(id));
+        const validSet = new Set(validOrder);
+        const newIds = wins.filter(w => !validSet.has(w.id)).map(w => w.id);
+        windowFocusOrder = [...validOrder, ...newIds];
+      }
+
+      await chrome.storage.local.set({ windowFocusOrder });
+    } catch (_e) {
+      // Non-critical
+    } finally {
+      focusOrderReady = null;
     }
-
-    await chrome.storage.local.set({ windowFocusOrder });
-  } catch (_e) {
-    // Non-critical
-  }
+  })();
+  focusOrderReady = p;
+  return p;
 }
 
 // Track window focus changes
@@ -648,6 +655,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === 'getWindowFocusOrder') {
+    if (focusOrderReady) {
+      focusOrderReady.then(() => {
+        sendResponse({ success: true, focusOrder: windowFocusOrder });
+      });
+      return true; // Keep message channel open for async response
+    }
     sendResponse({ success: true, focusOrder: windowFocusOrder });
     return false;
   }
