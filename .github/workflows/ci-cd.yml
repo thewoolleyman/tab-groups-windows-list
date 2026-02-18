@@ -86,15 +86,17 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Detected version: $VERSION"
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Create extension ZIP package
         run: |
+          BUILD_OUTPUT=$(node scripts/build-extension.js)
+          echo "Build output: $BUILD_OUTPUT"
           mkdir -p dist
-          zip -r dist/extension-v${{ steps.get_version.outputs.version }}.zip \
-            manifest.json \
-            popup.html \
-            popup.js \
-            icons/ \
-            -x "*.git*"
+          cp "$BUILD_OUTPUT" dist/extension-v${{ steps.get_version.outputs.version }}.zip
           echo "Created package: dist/extension-v${{ steps.get_version.outputs.version }}.zip"
           ls -la dist/
 
