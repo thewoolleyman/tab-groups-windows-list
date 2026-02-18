@@ -31,7 +31,8 @@ const mockChrome = {
     getAll: jest.fn(() => Promise.resolve([])),
     update: jest.fn(() => Promise.resolve()),
     onCreated: { addListener: jest.fn() },
-    onRemoved: { addListener: jest.fn() }
+    onRemoved: { addListener: jest.fn() },
+    onFocusChanged: { addListener: jest.fn() }
   },
   tabGroups: {
     query: jest.fn(() => Promise.resolve([])),
@@ -492,11 +493,12 @@ describe('setupEventListeners function', () => {
     expect(mockChrome.tabGroups.onUpdated.addListener).toHaveBeenCalled();
   });
 
-  test('should register all windows event listeners', () => {
+  test('should register all windows event listeners including onFocusChanged', () => {
     setupEventListeners();
 
     expect(mockChrome.windows.onCreated.addListener).toHaveBeenCalled();
     expect(mockChrome.windows.onRemoved.addListener).toHaveBeenCalled();
+    expect(mockChrome.windows.onFocusChanged.addListener).toHaveBeenCalled();
   });
 
   test('should set _chromeListenersRegistered flag', () => {
@@ -1930,6 +1932,104 @@ describe('Setup instructions link', () => {
 
     // Should NOT have appended a setup-link element
     expect(appendedClassNames).not.toContain('setup-link');
+  });
+});
+
+describe('sortWindows function', () => {
+  const { sortWindows } = require('../popup.js');
+
+  const makeWindow = (id, name, tabs) => ({
+    id,
+    tabs: tabs || [{ title: name || `Window ${id}` }]
+  });
+
+  test('should return windows as-is for "default" sort', () => {
+    const windows = [makeWindow(1, 'Beta'), makeWindow(2, 'Alpha')];
+    const result = sortWindows(windows, 'default', {});
+    expect(result.map(w => w.id)).toEqual([1, 2]);
+  });
+
+  test('should not mutate the original array', () => {
+    const windows = [makeWindow(1, 'Beta'), makeWindow(2, 'Alpha')];
+    const original = [...windows];
+    sortWindows(windows, 'alphabetical', {});
+    expect(windows.map(w => w.id)).toEqual(original.map(w => w.id));
+  });
+
+  test('should sort alphabetically by display name for "alphabetical" sort', () => {
+    const windows = [makeWindow(1, 'Charlie'), makeWindow(2, 'Alpha'), makeWindow(3, 'Bravo')];
+    const result = sortWindows(windows, 'alphabetical', {});
+    expect(result.map(w => w.id)).toEqual([2, 3, 1]);
+  });
+
+  test('should sort alphabetically case-insensitively', () => {
+    const windows = [makeWindow(1, 'banana'), makeWindow(2, 'Apple'), makeWindow(3, 'cherry')];
+    const result = sortWindows(windows, 'alphabetical', {});
+    expect(result.map(w => w.id)).toEqual([2, 1, 3]);
+  });
+
+  test('should strip leading emoji for alphabetical sort', () => {
+    const windows = [
+      makeWindow(1, null, [{ title: 'Zulu' }]),
+      makeWindow(2, null, [{ title: '🔥 Alpha' }])
+    ];
+    const cache = {};
+    const result = sortWindows(windows, 'alphabetical', cache);
+    // "🔥 Alpha" sorts as "Alpha" which comes before "Zulu"
+    expect(result.map(w => w.id)).toEqual([2, 1]);
+  });
+
+  test('should strip leading spaces for alphabetical sort', () => {
+    const windows = [
+      makeWindow(1, 'Zulu'),
+      makeWindow(2, null, [{ title: '   Alpha' }])
+    ];
+    const result = sortWindows(windows, 'alphabetical', {});
+    expect(result.map(w => w.id)).toEqual([2, 1]);
+  });
+
+  test('should use cached name for alphabetical sort', () => {
+    const windows = [
+      makeWindow(1, 'Zulu'),
+      makeWindow(2, 'Middle')
+    ];
+    const cache = { '1': { name: 'Alpha Window' } };
+    const result = sortWindows(windows, 'alphabetical', cache);
+    expect(result.map(w => w.id)).toEqual([1, 2]);
+  });
+
+  test('should sort by focus order for "recent" sort', () => {
+    const windows = [makeWindow(1, 'A'), makeWindow(2, 'B'), makeWindow(3, 'C')];
+    const focusOrder = [3, 1, 2]; // 3 most recent, then 1, then 2
+    const result = sortWindows(windows, 'recent', {}, focusOrder);
+    expect(result.map(w => w.id)).toEqual([3, 1, 2]);
+  });
+
+  test('should put windows missing from focus order at the end for "recent" sort', () => {
+    const windows = [makeWindow(1, 'A'), makeWindow(2, 'B'), makeWindow(3, 'C')];
+    const focusOrder = [2]; // only 2 is in focus order
+    const result = sortWindows(windows, 'recent', {}, focusOrder);
+    expect(result[0].id).toBe(2);
+    // 1 and 3 should come after, in their original order
+    expect(result.slice(1).map(w => w.id)).toEqual([1, 3]);
+  });
+
+  test('should return windows as-is for "recent" sort with empty focus order', () => {
+    const windows = [makeWindow(1, 'A'), makeWindow(2, 'B')];
+    const result = sortWindows(windows, 'recent', {}, []);
+    expect(result.map(w => w.id)).toEqual([1, 2]);
+  });
+
+  test('should return windows as-is for unknown sort order', () => {
+    const windows = [makeWindow(1, 'B'), makeWindow(2, 'A')];
+    const result = sortWindows(windows, 'unknown', {});
+    expect(result.map(w => w.id)).toEqual([1, 2]);
+  });
+
+  test('should handle empty windows array', () => {
+    expect(sortWindows([], 'alphabetical', {})).toEqual([]);
+    expect(sortWindows([], 'recent', {}, [])).toEqual([]);
+    expect(sortWindows([], 'default', {})).toEqual([]);
   });
 });
 

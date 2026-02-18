@@ -29,6 +29,18 @@
       color: #333;
     }
     
+    .sort-select {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 2px 4px;
+      font-size: 11px;
+      color: #444;
+      background: #fff;
+      cursor: pointer;
+      margin-left: auto;
+      margin-right: 6px;
+    }
+
     .help-btn {
       background: none;
       border: 1px solid #ccc;
@@ -197,6 +209,11 @@
 <body>
   <div class="header">
     <h2>Tab Groups & Windows</h2>
+    <select id="sort-windows" class="sort-select" title="Sort windows">
+      <option value="default">Default</option>
+      <option value="alphabetical">A-Z</option>
+      <option value="recent">Recent</option>
+    </select>
     <button id="help-btn" class="help-btn" title="Help">?</button>
   </div>
   

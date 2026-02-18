@@ -377,6 +377,54 @@ async function handleStartupMatching() {
   }
 }
 
+// --- Window focus order tracking for MRU sort ---
+
+let windowFocusOrder = []; // Most recent window ID first
+
+/**
+ * Initialize focus order from storage.
+ * If none of the stored IDs match current windows (e.g. after Chrome restart),
+ * re-seed with the current window IDs in default order.
+ */
+async function initFocusOrder() {
+  try {
+    const stored = await chrome.storage.local.get('windowFocusOrder');
+    const storedOrder = stored.windowFocusOrder || [];
+    const wins = await chrome.windows.getAll();
+    const currentIds = new Set(wins.map(w => w.id));
+
+    // Check if any stored IDs are still valid
+    const hasValidIds = storedOrder.some(id => currentIds.has(id));
+
+    if (storedOrder.length === 0 || !hasValidIds) {
+      // No stored order or all IDs are stale — seed with current windows
+      windowFocusOrder = wins.map(w => w.id);
+    } else {
+      // Keep valid IDs in their stored order, append any new windows at the end
+      const validOrder = storedOrder.filter(id => currentIds.has(id));
+      const validSet = new Set(validOrder);
+      const newIds = wins.filter(w => !validSet.has(w.id)).map(w => w.id);
+      windowFocusOrder = [...validOrder, ...newIds];
+    }
+
+    await chrome.storage.local.set({ windowFocusOrder });
+  } catch (_e) {
+    // Non-critical
+  }
+}
+
+// Track window focus changes
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  // Move to front
+  windowFocusOrder = [windowId, ...windowFocusOrder.filter(id => id !== windowId)];
+  try {
+    await chrome.storage.local.set({ windowFocusOrder });
+  } catch (_e) {
+    // Non-critical
+  }
+});
+
 // --- Event listener registration ---
 
 // Window created: fetch fresh names from native host
@@ -384,7 +432,7 @@ chrome.windows.onCreated.addListener(async (_window) => {
   await fetchAndCacheWindowNames();
 });
 
-// Window removed: mark as closed but retain for restart matching
+// Window removed: mark as closed but retain for restart matching, clean up focus order
 chrome.windows.onRemoved.addListener(async (windowId) => {
   try {
     const stored = await chrome.storage.local.get('windowNames');
@@ -400,6 +448,19 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
   /* istanbul ignore next - defensive catch for storage errors */
   } catch (e) {
     tgwlError('error', `onRemoved(${windowId}) failed:`, e?.message || e);
+  }
+
+  // Clean up focus order: remove all IDs that no longer correspond to open windows
+  try {
+    const currentWindows = await chrome.windows.getAll();
+    const currentIds = new Set(currentWindows.map(w => w.id));
+    const cleaned = windowFocusOrder.filter(id => currentIds.has(id));
+    if (cleaned.length !== windowFocusOrder.length) {
+      windowFocusOrder = cleaned;
+      await chrome.storage.local.set({ windowFocusOrder });
+    }
+  } catch (_e) {
+    // Non-critical
   }
 });
 
@@ -586,6 +647,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
+  if (message.action === 'getWindowFocusOrder') {
+    sendResponse({ success: true, focusOrder: windowFocusOrder });
+    return false;
+  }
+
   if (message.action === 'diagnose') {
     tgwlLog('diagnose', 'Running diagnostic pipeline');
     runDiagnosis().then((diagnosis) => {
@@ -602,9 +668,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-// On service worker start: fetch names and handle startup matching
+// On service worker start: fetch names, handle startup matching, init focus order
 fetchAndCacheWindowNames();
 handleStartupMatching();
+initFocusOrder();
 
 // Export for testing (CommonJS module support)
 /* istanbul ignore next - environment detection for module exports */
@@ -619,6 +686,7 @@ if (typeof module !== 'undefined' && module.exports) {
     runDiagnosis,
     logExtensionData,
     detectBrowser,
+    initFocusOrder,
     tgwlLog,
     tgwlError,
     NATIVE_HOST_NAME,

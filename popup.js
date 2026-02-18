@@ -93,6 +93,35 @@ function debounce(fn, delay) {
 }
 
 /**
+ * Sort windows by the selected sort order.
+ * @param {Array} windows - Array of chrome window objects
+ * @param {string} sortOrder - "default", "alphabetical", or "recent"
+ * @param {Object} windowNamesCache - Cached window names
+ * @param {Array} [focusOrder] - Array of window IDs, most recent first (for "recent" sort)
+ * @returns {Array} - Sorted copy of the windows array
+ */
+function sortWindows(windows, sortOrder, windowNamesCache, focusOrder) {
+  const sorted = [...windows];
+  if (sortOrder === 'alphabetical') {
+    const emojiAndSpaceRegex = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/u;
+    sorted.sort((a, b) => {
+      const nameA = getWindowDisplayName(a, windowNamesCache).replace(emojiAndSpaceRegex, '').toLowerCase();
+      const nameB = getWindowDisplayName(b, windowNamesCache).replace(emojiAndSpaceRegex, '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  } else if (sortOrder === 'recent' && focusOrder && focusOrder.length > 0) {
+    sorted.sort((a, b) => {
+      const idxA = focusOrder.indexOf(a.id);
+      const idxB = focusOrder.indexOf(b.id);
+      const posA = idxA === -1 ? Infinity : idxA;
+      const posB = idxB === -1 ? Infinity : idxB;
+      return posA - posB;
+    });
+  }
+  return sorted;
+}
+
+/**
  * Refresh the UI by re-fetching data and re-rendering
  * Exposed globally for testing and event handlers
  */
@@ -152,13 +181,37 @@ async function refreshUI() {
     const windows = await chrome.windows.getAll({ populate: true });
     const groups = await chrome.tabGroups.query({});
 
-    if (windows.length === 0) {
+    // Sort windows if dropdown is present
+    const sortSelect = typeof document !== 'undefined' && document.getElementById
+      ? document.getElementById('sort-windows') : null;
+    const sortOrder = sortSelect ? sortSelect.value : 'default';
+
+    let focusOrder = [];
+    if (sortOrder === 'recent') {
+      try {
+        focusOrder = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ action: 'getWindowFocusOrder' }, (response) => {
+            if (response && response.success) {
+              resolve(response.focusOrder || []);
+            } else {
+              resolve([]);
+            }
+          });
+        });
+      } catch (_e) {
+        focusOrder = [];
+      }
+    }
+
+    const sortedWindows = sortWindows(windows, sortOrder, windowNamesCache, focusOrder);
+
+    if (sortedWindows.length === 0) {
       container.innerHTML = '<div class="empty-msg">No windows found.</div>';
     } else {
       container.innerHTML = ''; // Clear current content
 
       // Build Hierarchy: Window -> Group -> Tab
-      windows.forEach(win => {
+      sortedWindows.forEach(win => {
         const windowEl = document.createElement('div');
         windowEl.className = 'window-item';
 
@@ -284,6 +337,9 @@ function setupEventListeners() {
   if (chrome.windows) {
     chrome.windows.onCreated.addListener(debouncedRefresh);
     chrome.windows.onRemoved.addListener(debouncedRefresh);
+    if (chrome.windows.onFocusChanged) {
+      chrome.windows.onFocusChanged.addListener(debouncedRefresh);
+    }
   }
 
   // Mark that listeners were registered (for testing)
@@ -304,6 +360,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (helpBtn) helpBtn.addEventListener('click', showModal);
   if (closeModal) closeModal.addEventListener('click', hideModal);
   if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) hideModal(); });
+
+  // Sort dropdown
+  const sortSelect = document.getElementById('sort-windows');
+  if (sortSelect) {
+    sortSelect.addEventListener('change', () => refreshUI());
+  }
 
   // Set up live update event listeners
   setupEventListeners();
@@ -467,6 +529,7 @@ if (typeof module !== 'undefined' && module.exports) {
     mapColor,
     generateWindowName,
     getWindowDisplayName,
+    sortWindows,
     buildOrderedWindowContent,
     createGroupElement,
     createTabElement,

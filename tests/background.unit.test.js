@@ -17,6 +17,7 @@
 // --- Chrome API mock setup ---
 let windowsCreatedListeners = [];
 let windowsRemovedListeners = [];
+let windowsFocusChangedListeners = [];
 let tabsCreatedListeners = [];
 let tabsRemovedListeners = [];
 let tabsUpdatedListeners = [];
@@ -44,6 +45,10 @@ const mockChrome = {
     onRemoved: {
       addListener: jest.fn((fn) => windowsRemovedListeners.push(fn)),
     },
+    onFocusChanged: {
+      addListener: jest.fn((fn) => windowsFocusChangedListeners.push(fn)),
+    },
+    WINDOW_ID_NONE: -1,
   },
   tabs: {
     query: jest.fn(),
@@ -81,6 +86,7 @@ global.chrome = mockChrome;
 function resetMocks() {
   windowsCreatedListeners = [];
   windowsRemovedListeners = [];
+  windowsFocusChangedListeners = [];
   tabsCreatedListeners = [];
   tabsRemovedListeners = [];
   tabsUpdatedListeners = [];
@@ -97,6 +103,9 @@ function resetMocks() {
   );
   mockChrome.windows.onRemoved.addListener.mockImplementation((fn) =>
     windowsRemovedListeners.push(fn),
+  );
+  mockChrome.windows.onFocusChanged.addListener.mockImplementation((fn) =>
+    windowsFocusChangedListeners.push(fn),
   );
   mockChrome.tabs.onCreated.addListener.mockImplementation((fn) =>
     tabsCreatedListeners.push(fn),
@@ -132,6 +141,7 @@ beforeAll(() => {
   initialListeners = {
     windowsCreated: [...windowsCreatedListeners],
     windowsRemoved: [...windowsRemovedListeners],
+    windowsFocusChanged: [...windowsFocusChangedListeners],
     tabsCreated: [...tabsCreatedListeners],
     tabsRemoved: [...tabsRemovedListeners],
     tabsUpdated: [...tabsUpdatedListeners],
@@ -2083,5 +2093,156 @@ describe('binary expression fallback coverage', () => {
     expect(diag.matching.pairs).toHaveLength(1);
     // native.activeTabTitle is undefined, so nativeTitle should be null (|| null fallback)
     expect(diag.matching.pairs[0].nativeTitle).toBeNull();
+  });
+});
+
+// =============================================================
+// 20. Window focus order tracking
+// =============================================================
+
+describe('window focus order tracking', () => {
+  test('should register windows.onFocusChanged listener', () => {
+    expect(initialListeners.windowsFocusChanged.length).toBeGreaterThan(0);
+  });
+
+  test('onFocusChanged should move window to front of focus order', async () => {
+    storageData = { windowFocusOrder: [1, 2, 3] };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+
+    const listener = initialListeners.windowsFocusChanged[0];
+    await listener(3); // Focus window 3
+
+    // Should have saved with 3 at front
+    expect(mockChrome.storage.local.set).toHaveBeenCalled();
+    const setCall = mockChrome.storage.local.set.mock.calls[0][0];
+    expect(setCall.windowFocusOrder[0]).toBe(3);
+  });
+
+  test('onFocusChanged should ignore WINDOW_ID_NONE', async () => {
+    const listener = initialListeners.windowsFocusChanged[0];
+    await listener(mockChrome.windows.WINDOW_ID_NONE);
+
+    // Should not have called storage.set
+    expect(mockChrome.storage.local.set).not.toHaveBeenCalled();
+  });
+
+  test('getWindowFocusOrder message should return focus order', () => {
+    const listener = initialListeners.runtimeMessage[0];
+    const sendResponse = jest.fn();
+    const result = listener({ action: 'getWindowFocusOrder' }, {}, sendResponse);
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        focusOrder: expect.any(Array),
+      })
+    );
+    // Should return false (synchronous response)
+    expect(result).toBe(false);
+  });
+
+  test('should export initFocusOrder function', () => {
+    expect(typeof background.initFocusOrder).toBe('function');
+  });
+
+  test('onRemoved should clean orphaned IDs from focus order', async () => {
+    // Simulate: focus order has IDs 1, 2, 3 but only window 2 remains after close
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 2 }]);
+
+    // Manually set the in-memory focus order via initFocusOrder
+    mockChrome.storage.local.get.mockResolvedValue({ windowFocusOrder: [1, 2, 3] });
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    await background.initFocusOrder();
+    jest.clearAllMocks();
+
+    // Now simulate window removal — only window 2 remains
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 2 }]);
+
+    const listener = initialListeners.windowsRemoved[0];
+    await listener(1);
+
+    // Should have saved cleaned focus order with only window 2
+    const focusSetCalls = mockChrome.storage.local.set.mock.calls
+      .filter(c => c[0].windowFocusOrder !== undefined);
+    expect(focusSetCalls.length).toBeGreaterThan(0);
+    const lastFocusSet = focusSetCalls[focusSetCalls.length - 1][0];
+    expect(lastFocusSet.windowFocusOrder).toEqual([2]);
+  });
+
+  test('onRemoved should not write focus order if nothing changed', async () => {
+    // Set up focus order with only valid IDs
+    mockChrome.storage.local.get.mockResolvedValue({ windowFocusOrder: [2, 3] });
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 2 }, { id: 3 }]);
+    await background.initFocusOrder();
+    jest.clearAllMocks();
+
+    // Window 1 removed, but it was never in focus order
+    storageData = { windowNames: {} };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 2 }, { id: 3 }]);
+
+    const listener = initialListeners.windowsRemoved[0];
+    await listener(1);
+
+    // Should NOT have written windowFocusOrder since nothing was cleaned
+    const focusSetCalls = mockChrome.storage.local.set.mock.calls
+      .filter(c => c[0].windowFocusOrder !== undefined);
+    expect(focusSetCalls).toHaveLength(0);
+  });
+
+  test('initFocusOrder should preserve valid stored order', async () => {
+    storageData = { windowFocusOrder: [3, 1, 2] };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+
+    await background.initFocusOrder();
+
+    const setCall = mockChrome.storage.local.set.mock.calls[0][0];
+    expect(setCall.windowFocusOrder).toEqual([3, 1, 2]);
+  });
+
+  test('initFocusOrder should seed with current windows when storage is empty', async () => {
+    storageData = {};
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 10 }, { id: 20 }]);
+
+    await background.initFocusOrder();
+
+    expect(mockChrome.storage.local.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        windowFocusOrder: [10, 20],
+      })
+    );
+  });
+
+  test('initFocusOrder should re-seed when all stored IDs are stale (Chrome restart)', async () => {
+    // Old IDs from previous Chrome session
+    storageData = { windowFocusOrder: [100, 200, 300] };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    // New IDs after restart
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+
+    await background.initFocusOrder();
+
+    const setCall = mockChrome.storage.local.set.mock.calls[0][0];
+    // Should have replaced with current window IDs in default order
+    expect(setCall.windowFocusOrder).toEqual([1, 2]);
+  });
+
+  test('initFocusOrder should keep valid IDs and append new ones', async () => {
+    // Window 2 survived, windows 100/200 are stale, window 5 is new
+    storageData = { windowFocusOrder: [200, 2, 100] };
+    mockChrome.storage.local.get.mockResolvedValue(storageData);
+    mockChrome.windows.getAll.mockResolvedValue([{ id: 2 }, { id: 5 }]);
+
+    await background.initFocusOrder();
+
+    const setCall = mockChrome.storage.local.set.mock.calls[0][0];
+    // Window 2 keeps its position, stale IDs removed, window 5 appended
+    expect(setCall.windowFocusOrder).toEqual([2, 5]);
   });
 });

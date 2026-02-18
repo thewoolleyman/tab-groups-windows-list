@@ -142,6 +142,7 @@ async function setupPageWithMockData(page, mockData = richMockData) {
         update: () => Promise.resolve(),
         onCreated: createEventMock(),
         onRemoved: createEventMock(),
+        onFocusChanged: createEventMock(),
       },
       tabGroups: {
         query: () => Promise.resolve(window._mockData.groups),
@@ -157,6 +158,20 @@ async function setupPageWithMockData(page, mockData = richMockData) {
         onMoved: createEventMock(),
         onAttached: createEventMock(),
         onDetached: createEventMock(),
+      },
+      runtime: {
+        sendMessage: (msg, cb) => {
+          if (msg.action === 'getWindowNames') {
+            cb({ success: true, windowNames: window._mockWindowNames || {} });
+          } else if (msg.action === 'getWindowFocusOrder') {
+            cb({ success: true, focusOrder: window._mockFocusOrder || [] });
+          } else if (msg.action === 'diagnose') {
+            cb({ success: false });
+          } else {
+            cb({ success: false, error: 'unknown action' });
+          }
+        },
+        sendNativeMessage: (_host, _msg, cb) => { cb(undefined); },
       },
     };
   }, mockData);
@@ -974,5 +989,149 @@ test.describe("Visual Styling", () => {
     // Verify we have 4 different colors (blue, green, red, purple)
     const uniqueColors = [...new Set(colors)];
     expect(uniqueColors.length).toBe(4);
+  });
+});
+
+// =============================================================================
+// WINDOW SORTING TESTS - Sort dropdown and window ordering
+// =============================================================================
+
+// Test data: windows with names that sort differently than creation order
+const sortTestMockData = {
+  windows: [
+    {
+      id: 1,
+      tabs: [
+        { id: 1, title: "Charlie Project", groupId: -1, index: 0, favIconUrl: null },
+      ],
+    },
+    {
+      id: 2,
+      tabs: [
+        { id: 2, title: "Alpha Project", groupId: -1, index: 0, favIconUrl: null },
+      ],
+    },
+    {
+      id: 3,
+      tabs: [
+        { id: 3, title: "Bravo Project", groupId: -1, index: 0, favIconUrl: null },
+      ],
+    },
+  ],
+  groups: [],
+};
+
+test.describe("WINDOW SORTING: Sort dropdown and window ordering", () => {
+  test("should display sort dropdown in header", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    const sortSelect = page.locator("#sort-windows");
+    await expect(sortSelect).toBeVisible();
+    await expect(sortSelect).toHaveValue("default");
+  });
+
+  test("should have Default, A-Z, and Recent options", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    const options = page.locator("#sort-windows option");
+    await expect(options).toHaveCount(3);
+    await expect(options.nth(0)).toHaveText("Default");
+    await expect(options.nth(1)).toHaveText("A-Z");
+    await expect(options.nth(2)).toHaveText("Recent");
+  });
+
+  test("default sort should show windows in Chrome API order", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    const windowHeaders = page.locator(".window-header");
+    await expect(windowHeaders.nth(0)).toContainText("Charlie Proj");
+    await expect(windowHeaders.nth(1)).toContainText("Alpha Projec");
+    await expect(windowHeaders.nth(2)).toContainText("Bravo Projec");
+  });
+
+  test("A-Z sort should reorder windows alphabetically", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    // Select alphabetical sort
+    await page.selectOption("#sort-windows", "alphabetical");
+    await page.waitForTimeout(500);
+
+    const windowHeaders = page.locator(".window-header");
+    // Alpha, Bravo, Charlie
+    await expect(windowHeaders.nth(0)).toContainText("Alpha Projec");
+    await expect(windowHeaders.nth(1)).toContainText("Bravo Projec");
+    await expect(windowHeaders.nth(2)).toContainText("Charlie Proj");
+  });
+
+  test("A-Z sort should strip leading emoji for ordering", async ({ page }) => {
+    const emojiMockData = {
+      windows: [
+        { id: 1, tabs: [{ id: 1, title: "Zulu Tab", groupId: -1, index: 0, favIconUrl: null }] },
+        { id: 2, tabs: [{ id: 2, title: "🔥 Alpha Tab", groupId: -1, index: 0, favIconUrl: null }] },
+      ],
+      groups: [],
+    };
+
+    await setupPageWithMockData(page, emojiMockData);
+
+    await page.selectOption("#sort-windows", "alphabetical");
+    await page.waitForTimeout(500);
+
+    const windowHeaders = page.locator(".window-header");
+    // "🔥 Alpha Tab" should sort as "Alpha Tab" — before "Zulu Tab"
+    await expect(windowHeaders.nth(0)).toContainText("Alpha Tab");
+    await expect(windowHeaders.nth(1)).toContainText("Zulu Tab");
+  });
+
+  test("Recent sort should order by focus order from background", async ({ page }) => {
+    // Use setupPageWithMockData first, then set focus order and re-trigger
+    await setupPageWithMockData(page, sortTestMockData);
+
+    // Set focus order after page is loaded (mock is already in place)
+    await page.evaluate(() => {
+      window._mockFocusOrder = [3, 1, 2];
+    });
+
+    await page.selectOption("#sort-windows", "recent");
+    await page.waitForTimeout(500);
+
+    const windowHeaders = page.locator(".window-header");
+    // Window 3 (Bravo), Window 1 (Charlie), Window 2 (Alpha)
+    await expect(windowHeaders.nth(0)).toContainText("Bravo Projec");
+    await expect(windowHeaders.nth(1)).toContainText("Charlie Proj");
+    await expect(windowHeaders.nth(2)).toContainText("Alpha Projec");
+  });
+
+  test("switching back to Default should restore original order", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    // Sort alphabetically first
+    await page.selectOption("#sort-windows", "alphabetical");
+    await page.waitForTimeout(500);
+
+    // Switch back to default
+    await page.selectOption("#sort-windows", "default");
+    await page.waitForTimeout(500);
+
+    const windowHeaders = page.locator(".window-header");
+    await expect(windowHeaders.nth(0)).toContainText("Charlie Proj");
+    await expect(windowHeaders.nth(1)).toContainText("Alpha Projec");
+    await expect(windowHeaders.nth(2)).toContainText("Bravo Projec");
+  });
+
+  test("sort dropdown should be positioned between title and help button", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    const header = page.locator(".header");
+    const children = header.locator("> *");
+
+    // Order: h2, select, button
+    const tagNames = [];
+    const count = await children.count();
+    for (let i = 0; i < count; i++) {
+      const tag = await children.nth(i).evaluate(el => el.tagName.toLowerCase());
+      tagNames.push(tag);
+    }
+    expect(tagNames).toEqual(["h2", "select", "button"]);
   });
 });
