@@ -243,10 +243,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.build.outputs.version }}"
+          cp native-host/host.py "dist/host-v$VERSION.py"
           gh release create "v$VERSION" \
             --title "Release v$VERSION" \
             --generate-notes \
-            dist/extension-v$VERSION.zip
+            dist/extension-v$VERSION.zip \
+            "dist/host-v$VERSION.py"
 
       - name: Bump version for next release
         if: steps.check_release.outputs.release_created == 'true'

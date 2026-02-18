@@ -43,6 +43,8 @@ Or from a local clone:
 npm run install:native-host
 ```
 
+Or download a specific version from a [GitHub release](https://github.com/thewoolleyman/tab-groups-windows-list/releases) — each release includes a `host-v*.py` file — and copy it to `~/.local/lib/tab-groups-window-namer/host.py`.
+
 The installer detects Chrome, Brave, Edge, and Chromium, and places the native messaging manifest in the correct directory for each. On non-macOS systems it prints a message that window name sync is macOS only.
 
 ### Setting a custom window name
