@@ -52,6 +52,12 @@ const mockChrome = {
   runtime: {
     sendMessage: jest.fn(),
     sendNativeMessage: jest.fn()
+  },
+  storage: {
+    local: {
+      get: jest.fn(() => Promise.resolve({})),
+      set: jest.fn(() => Promise.resolve())
+    }
   }
 };
 
@@ -2172,6 +2178,76 @@ describe('refreshUI with sort dropdown set to recent', () => {
     await refreshUI();
 
     expect(mockContainer.appendChild).toHaveBeenCalled();
+  });
+});
+
+describe('sort dropdown persistence', () => {
+  let mockSortSelect;
+  let mockContainer;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSortSelect = { value: 'default', addEventListener: jest.fn() };
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    setContainer(mockContainer);
+    mockDocument.querySelectorAll.mockReturnValue([]);
+    mockDocument.getElementById.mockImplementation((id) => {
+      if (id === 'sort-windows') return mockSortSelect;
+      if (id === 'groups-container') return mockContainer;
+      return null;
+    });
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowNames') {
+        cb({ success: true, windowNames: {} });
+      } else {
+        cb({ success: false });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ id: 10, title: 'Tab A' }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    mockDocument.getElementById.mockReset();
+  });
+
+  test('should save sort selection to chrome.storage.local when refreshUI runs', async () => {
+    mockSortSelect.value = 'alphabetical';
+    await refreshUI();
+
+    expect(mockChrome.storage.local.set).toHaveBeenCalledWith({ sortOrder: 'alphabetical' });
+  });
+
+  test('should save default sort selection to storage', async () => {
+    mockSortSelect.value = 'default';
+    await refreshUI();
+
+    expect(mockChrome.storage.local.set).toHaveBeenCalledWith({ sortOrder: 'default' });
+  });
+
+  test('should save recent sort selection to storage', async () => {
+    mockSortSelect.value = 'recent';
+
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowFocusOrder') {
+        cb({ success: true, focusOrder: [1] });
+      } else {
+        cb({ success: true, windowNames: {} });
+      }
+    });
+
+    await refreshUI();
+
+    expect(mockChrome.storage.local.set).toHaveBeenCalledWith({ sortOrder: 'recent' });
   });
 });
 

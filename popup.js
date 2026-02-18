@@ -185,6 +185,11 @@ async function refreshUI() {
     const sortSelect = document.getElementById('sort-windows');
     const sortOrder = sortSelect ? sortSelect.value : 'default';
 
+    // Persist sort selection
+    if (sortSelect && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ sortOrder });
+    }
+
     let focusOrder = [];
     if (sortOrder === 'recent') {
       try {
@@ -360,9 +365,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (closeModal) closeModal.addEventListener('click', hideModal);
   if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) hideModal(); });
 
-  // Sort dropdown
+  // Sort dropdown - restore persisted selection
   const sortSelect = document.getElementById('sort-windows');
   if (sortSelect) {
+    if (chrome.storage && chrome.storage.local) {
+      try {
+        const result = await chrome.storage.local.get('sortOrder');
+        if (result.sortOrder) {
+          sortSelect.value = result.sortOrder;
+        }
+      } catch (_e) { /* ignore storage errors */ }
+    }
     sortSelect.addEventListener('change', () => refreshUI());
   }
 

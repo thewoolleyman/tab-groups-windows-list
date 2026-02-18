@@ -173,6 +173,12 @@ async function setupPageWithMockData(page, mockData = richMockData) {
         },
         sendNativeMessage: (_host, _msg, cb) => { cb(undefined); },
       },
+      storage: {
+        local: {
+          get: () => Promise.resolve({}),
+          set: () => Promise.resolve(),
+        }
+      },
     };
   }, mockData);
 
@@ -1133,5 +1139,96 @@ test.describe("WINDOW SORTING: Sort dropdown and window ordering", () => {
       tagNames.push(tag);
     }
     expect(tagNames).toEqual(["h2", "select", "button"]);
+  });
+
+  test("should persist sort selection to chrome.storage.local on change", async ({ page }) => {
+    await setupPageWithMockData(page, sortTestMockData);
+
+    // Track storage.local.set calls
+    await page.evaluate(() => {
+      window._storageSets = [];
+      window.chrome.storage.local.set = (data) => {
+        window._storageSets.push(data);
+        return Promise.resolve();
+      };
+    });
+
+    await page.selectOption("#sort-windows", "alphabetical");
+    await page.waitForTimeout(500);
+
+    const storageSets = await page.evaluate(() => window._storageSets);
+    expect(storageSets).toContainEqual({ sortOrder: "alphabetical" });
+  });
+
+  test("should restore persisted sort selection on popup open", async ({ page }) => {
+    // Set up page with storage returning a saved sort preference
+    await page.goto(`file://${popupPath}`);
+
+    await page.addInitScript((data) => {
+      window._mockData = data;
+
+      const createEventMock = () => ({
+        addListener: () => {},
+        removeListener: () => {},
+      });
+
+      window.chrome = {
+        windows: {
+          getAll: () => Promise.resolve(window._mockData.windows),
+          update: () => Promise.resolve(),
+          onCreated: createEventMock(),
+          onRemoved: createEventMock(),
+          onFocusChanged: createEventMock(),
+        },
+        tabGroups: {
+          query: () => Promise.resolve(window._mockData.groups),
+          onCreated: createEventMock(),
+          onRemoved: createEventMock(),
+          onUpdated: createEventMock(),
+        },
+        tabs: {
+          update: () => Promise.resolve(),
+          onCreated: createEventMock(),
+          onRemoved: createEventMock(),
+          onUpdated: createEventMock(),
+          onMoved: createEventMock(),
+          onAttached: createEventMock(),
+          onDetached: createEventMock(),
+        },
+        runtime: {
+          sendMessage: (msg, cb) => {
+            if (msg.action === 'getWindowNames') {
+              cb({ success: true, windowNames: {} });
+            } else if (msg.action === 'getWindowFocusOrder') {
+              cb({ success: true, focusOrder: [] });
+            } else if (msg.action === 'diagnose') {
+              cb({ success: false });
+            } else {
+              cb({ success: false, error: 'unknown action' });
+            }
+          },
+          sendNativeMessage: (_host, _msg, cb) => { cb(undefined); },
+        },
+        storage: {
+          local: {
+            get: (keys) => Promise.resolve({ sortOrder: 'alphabetical' }),
+            set: () => Promise.resolve(),
+          }
+        },
+      };
+    }, sortTestMockData);
+
+    await page.reload();
+    await page.waitForTimeout(500);
+
+    // The dropdown should show the persisted value
+    const sortSelect = page.locator("#sort-windows");
+    await expect(sortSelect).toHaveValue("alphabetical");
+
+    // And windows should be sorted alphabetically
+    const windowHeaders = page.locator(".window-header");
+    await expect(windowHeaders.nth(0)).toContainText("Alpha Projec");
+    await expect(windowHeaders.nth(1)).toContainText("Bravo Projec");
+    await expect(windowHeaders.nth(2)).toContainText("Charlie Proj");
   });
 });
