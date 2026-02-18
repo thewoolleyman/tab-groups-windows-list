@@ -1,39 +1,61 @@
 TAB GROUPS & WINDOWS LIST
 
-Simplify your tab management with a clear, hierarchical overview of your browser.
+A clean, 3-level expandable hierarchy of Windows, Tab Groups, and Tabs.
 
-Are you a power user who relies on Chrome's Tab Groups to stay organized? Tab Groups & Windows List is a minimalist productivity tool designed to give you an instant, bird's-eye view of all your active groups across every open window.
+Are you a power user who relies on Chrome's Tab Groups to stay organized? Tab Groups & Windows List gives you an instant, bird's-eye view of everything happening across all your browser windows in one compact popup.
 
 KEY FEATURES
 
-Instant 2-Level Overview: See all your tab groups in a clean, expandable list.
+3-Level Hierarchy: Windows at the top, Tab Groups nested inside, and individual Tabs at the bottom. Expand or collapse any level with a click.
 
-Window Mapping: Click any group to reveal exactly which browser window it is currently in.
+Custom Window Names: Install the optional native helper to display real window titles from your OS instead of generic IDs.
 
-Visual Consistency: Automatically matches your group colors (Blue, Red, Yellow, Green, etc.) for intuitive recognition.
+Window Sorting: Sort your windows by Default order, A-Z alphabetically, or by Most Recently focused.
 
-Lightweight and Fast: No background processes, no tracking, and zero impact on browser performance.
+Click to Navigate: Click a window header to focus it, click a group to jump to its first tab, or click any tab to switch directly to it.
 
-Privacy Focused: Requires only the minimum necessary permissions to function.
+Color-Coded Groups: Group colors (Blue, Red, Yellow, Green, Pink, Purple, Cyan, Orange) are displayed with matching dots for instant recognition.
+
+Live Updates: The popup refreshes automatically as you open, close, move, or rearrange tabs, groups, and windows. No manual refresh needed.
+
+Ungrouped Tabs: Tabs that are not in any group are shown at the correct position within their window, so you always see the full picture.
+
+Lightweight and Fast: No background overhead when the popup is closed, no tracking, and zero impact on browser performance.
+
+Privacy Focused: Requires only the minimum necessary permissions to function. Your data stays local and is never sent to any remote server.
 
 WHY USE THIS EXTENSION?
 
-When you have dozens of tabs spread across multiple windows, finding a specific group can be a challenge. This extension eliminates the "window hunting" by providing a centralized directory. Whether you are managing work projects, research, or social tabs, you can now locate your groups in seconds.
+When you have dozens of tabs spread across multiple windows, finding a specific group or tab can be a challenge. This extension eliminates the guesswork by providing a centralized directory of every window, group, and tab. Whether you are managing work projects, research, or personal browsing, you can locate anything in seconds.
 
 HOW IT WORKS
 
 Click the extension icon in your toolbar.
 
-View the list of all active tab groups.
+See all your windows listed, each showing its custom name or a summary of its tab titles.
 
-Expand a group to see its host window name or ID.
+Expand a window to see its tab groups (with color dots) and ungrouped tabs in the correct order.
 
-Navigate with confidence knowing exactly where your tabs are.
+Expand a group to see individual tabs with their favicons.
+
+Click any item to navigate directly to it.
+
+OPTIONAL: CUSTOM WINDOW NAMES
+
+By default, windows are labeled with a summary of their tab titles. For a better experience, you can install the optional native messaging host, a small Python script that reads your actual OS window titles (e.g. the names you set in your window manager). This works on macOS and Linux with Google Chrome, Brave, Microsoft Edge, and Chromium.
+
+The native host is a single Python script that runs locally on your machine. It only reads window titles and never contacts any remote server. It requires Python 3 and supports macOS and Linux.
+
+Install instructions and source code are available on the project GitHub page:
+https://github.com/thewoolleyman/tab-groups-windows-list
+
+Restart your browser after installing for the native host to take effect.
 
 OPEN SOURCE
 
-This extension is released into the public domain under the UNLICENSE. View the source code and contribute on GitHub.
+Source code: https://github.com/thewoolleyman/tab-groups-windows-list
+License: UNLICENSE (public domain). View the source code and contribute on GitHub.
 
 PERMISSIONS NOTE
 
-This extension requires access to tabGroups, tabs, and windows APIs solely to generate the list and help you navigate. Your data never leaves your browser.
+This extension uses the tabGroups, windows, nativeMessaging, and storage permissions. The tabGroups and windows permissions are used to read your open windows and tab groups for display. The storage permission saves your sort preference. The nativeMessaging permission enables optional communication with a user-installed local helper that reads OS window titles. No data is sent to any remote server.
