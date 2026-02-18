@@ -167,11 +167,16 @@
       height: 100%;
       background-color: rgba(0,0,0,0.5);
       z-index: 100;
+      overflow-y: auto;
     }
-    
+
+    body.modal-open {
+      min-height: 350px;
+    }
+
     .modal-content {
       background-color: #fff;
-      margin: 50px auto;
+      margin: 20px auto;
       padding: 20px;
       width: 80%;
       max-width: 300px;

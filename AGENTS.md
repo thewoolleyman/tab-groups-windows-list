@@ -125,6 +125,74 @@ Matching scores: `boundsScore` (0 or 1, exact bounds match) + `titleScore` (0 or
 4. Check `nativeHostLogTail` — any osascript errors?
 5. Check `serviceWorkerLogs` — any `[TGWL:error]` entries?
 
+---
+
+## Visual UI Testing (Autonomous)
+
+For visually verifying popup UI changes without manual intervention. This lets agents render the extension popup, inject mock data, take screenshots, and confirm fixes.
+
+### Why Not Direct Extension Access?
+
+- `chrome://` and `chrome-extension://` URLs are blocked by browser automation MCP tools
+- `file://` protocol is also blocked
+- Solution: serve extension files via a local HTTP server and mock the Chrome APIs
+
+### Setup
+
+```bash
+# Start a local server from the project root (background)
+python3 -m http.server 8765 &
+
+# Navigate to popup via Playwright MCP
+# URL: http://localhost:8765/popup.html
+
+# Stop server when done
+pkill -f "python3 -m http.server 8765"
+```
+
+### Injecting Mock Chrome APIs
+
+The popup requires `chrome.windows`, `chrome.tabGroups`, `chrome.tabs`, etc. Use `addInitScript()` (or `browser_run_code` / `browser_evaluate`) to inject mocks **before** the page scripts run. See `tests/extension.e2e.spec.js` for comprehensive mock patterns including:
+
+- `richMockData` — 2 windows, 2 groups/window, 2 tabs/group
+- `windowWithNoGroupsMockData` — ungrouped tabs only
+- `mixedGroupedUngroupedMockData` — both grouped and ungrouped
+- Event mocks via `createEventMock()` for all `onCreated`/`onRemoved`/`onUpdated` listeners
+
+### Simulating Chrome Popup Size
+
+Chrome extension popups auto-size to their content. To simulate this:
+
+```
+# Use browser_resize to constrain the viewport
+# Small popup (few windows): 350 x 180
+# Medium popup: 350 x 350
+# Full popup: 350 x 500  (matches body max-height)
+```
+
+**Key gotcha:** `position: fixed` elements are constrained to the viewport. In a real Chrome popup, the viewport = popup window size = content height. When testing at small viewport sizes, fixed-position overlays (like the help modal) will clip just as they would in the real popup.
+
+### Screenshot Location
+
+**All screenshots must be saved under `tmp/screenshots/`** (gitignored via `/tmp`). Never save screenshots to the project root or other tracked directories.
+
+When using Playwright MCP `browser_take_screenshot`, always set the filename with the `tmp/screenshots/` prefix:
+```
+filename: "tmp/screenshots/my-test.png"
+```
+
+The existing e2e test suite saves to `screenshots/` (also gitignored).
+
+### Workflow
+
+1. Start local server: `python3 -m http.server 8765 &`
+2. Navigate: `http://localhost:8765/popup.html`
+3. Inject mocks via `browser_run_code` with `addInitScript` + `page.goto` reload
+4. Resize viewport to simulate popup dimensions
+5. Interact (click, expand, open modals) and take screenshots to `tmp/screenshots/`
+6. Verify visually, iterate on fixes
+7. Stop server: `pkill -f "python3 -m http.server 8765"`
+
 <!-- bv-agent-instructions-v1 -->
 
 ---

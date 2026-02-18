@@ -299,9 +299,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const closeModal = document.getElementById('close-modal');
 
   // Help Modal Logic
-  if (helpBtn) helpBtn.addEventListener('click', () => helpModal.style.display = 'block');
-  if (closeModal) closeModal.addEventListener('click', () => helpModal.style.display = 'none');
-  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) helpModal.style.display = 'none'; });
+  const showModal = () => { helpModal.style.display = 'block'; document.body.classList.add('modal-open'); };
+  const hideModal = () => { helpModal.style.display = 'none'; document.body.classList.remove('modal-open'); };
+  if (helpBtn) helpBtn.addEventListener('click', showModal);
+  if (closeModal) closeModal.addEventListener('click', hideModal);
+  if (helpModal) helpModal.addEventListener('click', (e) => { if (e.target === helpModal) hideModal(); });
 
   // Set up live update event listeners
   setupEventListeners();
