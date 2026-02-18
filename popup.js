@@ -182,8 +182,7 @@ async function refreshUI() {
     const groups = await chrome.tabGroups.query({});
 
     // Sort windows if dropdown is present
-    const sortSelect = typeof document !== 'undefined' && document.getElementById
-      ? document.getElementById('sort-windows') : null;
+    const sortSelect = document.getElementById('sort-windows');
     const sortOrder = sortSelect ? sortSelect.value : 'default';
 
     let focusOrder = [];

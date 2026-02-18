@@ -533,6 +533,15 @@ describe('setupEventListeners function', () => {
 
     global.chrome.windows = originalWindows;
   });
+
+  test('should handle missing chrome.windows.onFocusChanged gracefully', () => {
+    const originalOnFocusChanged = global.chrome.windows.onFocusChanged;
+    global.chrome.windows.onFocusChanged = undefined;
+
+    expect(() => setupEventListeners()).not.toThrow();
+
+    global.chrome.windows.onFocusChanged = originalOnFocusChanged;
+  });
 });
 
 describe('Hierarchy structure validation', () => {
@@ -2030,6 +2039,139 @@ describe('sortWindows function', () => {
     expect(sortWindows([], 'alphabetical', {})).toEqual([]);
     expect(sortWindows([], 'recent', {}, [])).toEqual([]);
     expect(sortWindows([], 'default', {})).toEqual([]);
+  });
+});
+
+describe('refreshUI with sort dropdown set to recent', () => {
+  let mockContainer;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockContainer = {
+      innerHTML: '',
+      appendChild: jest.fn(),
+      querySelectorAll: jest.fn(() => [])
+    };
+    setContainer(mockContainer);
+    mockDocument.querySelectorAll.mockReturnValue([]);
+    mockDocument.getElementById.mockImplementation((id) => {
+      if (id === 'sort-windows') return { value: 'recent' };
+      if (id === 'groups-container') return mockContainer;
+      return null;
+    });
+  });
+
+  afterEach(() => {
+    mockDocument.getElementById.mockReset();
+  });
+
+  test('should fetch focus order from background when sort is recent', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowFocusOrder') {
+        cb({ success: true, focusOrder: [2, 1] });
+      } else {
+        cb({ success: true, windowNames: {} });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ id: 10, title: 'Tab A' }] },
+      { id: 2, tabs: [{ id: 20, title: 'Tab B' }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    expect(mockChrome.runtime.sendMessage).toHaveBeenCalledWith(
+      { action: 'getWindowFocusOrder' },
+      expect.any(Function)
+    );
+  });
+
+  test('should handle unsuccessful focus order response', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowFocusOrder') {
+        cb({ success: false });
+      } else {
+        cb({ success: true, windowNames: {} });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ id: 10, title: 'Tab A' }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    // Should not throw and should render windows
+    expect(mockContainer.appendChild).toHaveBeenCalled();
+  });
+
+  test('should handle null response from focus order request', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowFocusOrder') {
+        cb(null);
+      } else {
+        cb({ success: true, windowNames: {} });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ id: 10, title: 'Tab A' }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    expect(mockContainer.appendChild).toHaveBeenCalled();
+  });
+
+  test('should handle response with undefined focusOrder field', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      if (msg.action === 'getWindowFocusOrder') {
+        cb({ success: true }); // focusOrder field missing
+      } else {
+        cb({ success: true, windowNames: {} });
+      }
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ id: 10, title: 'Tab A' }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    expect(mockContainer.appendChild).toHaveBeenCalled();
+  });
+
+  test('should handle sendMessage throwing for focus order', async () => {
+    mockChrome.runtime.sendMessage.mockImplementation((msg, _cb) => {
+      if (msg.action === 'getWindowFocusOrder') {
+        throw new Error('Extension context invalidated');
+      }
+      _cb({ success: true, windowNames: {} });
+    });
+    mockChrome.runtime.sendNativeMessage.mockImplementation((_host, _msg, cb) => {
+      cb(undefined);
+    });
+    mockChrome.windows.getAll.mockResolvedValue([
+      { id: 1, tabs: [{ id: 10, title: 'Tab A' }] }
+    ]);
+    mockChrome.tabGroups.query.mockResolvedValue([]);
+
+    await refreshUI();
+
+    expect(mockContainer.appendChild).toHaveBeenCalled();
   });
 });
 

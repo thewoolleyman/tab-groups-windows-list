@@ -2106,16 +2106,19 @@ describe('window focus order tracking', () => {
   });
 
   test('onFocusChanged should move window to front of focus order', async () => {
-    storageData = { windowFocusOrder: [1, 2, 3] };
-    mockChrome.storage.local.get.mockResolvedValue(storageData);
-
+    // First, seed the in-memory focus order by focusing multiple windows
     const listener = initialListeners.windowsFocusChanged[0];
-    await listener(3); // Focus window 3
+    await listener(1);
+    await listener(2);
+    await listener(3);
+    jest.clearAllMocks();
 
-    // Should have saved with 3 at front
+    // Now focus window 1 — should move it to front, filtering out duplicates
+    await listener(1);
+
     expect(mockChrome.storage.local.set).toHaveBeenCalled();
     const setCall = mockChrome.storage.local.set.mock.calls[0][0];
-    expect(setCall.windowFocusOrder[0]).toBe(3);
+    expect(setCall.windowFocusOrder).toEqual([1, 3, 2]);
   });
 
   test('onFocusChanged should ignore WINDOW_ID_NONE', async () => {
